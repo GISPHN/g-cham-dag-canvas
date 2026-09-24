@@ -6,6 +6,7 @@
   background: #f6f7fb;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  font-weight: 500;
 }
 
 * {
@@ -26,6 +27,7 @@ input,
 textarea,
 select {
   font: inherit;
+  font-weight: 550;
 }
 
 button {
@@ -60,7 +62,8 @@ button {
 .subtitle {
   margin-top: 4px;
   color: #6b7280;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
 }
 
 .top-actions,
@@ -156,8 +159,9 @@ section + section {
 .field-label {
   display: block;
   margin-bottom: 6px;
-  font-size: 12px;
-  color: #667085;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: #566176;
 }
 
 input,
@@ -223,15 +227,17 @@ select:focus {
 .framework-field span {
   display: block;
   margin-bottom: 5px;
-  font-size: 11px;
-  color: #49566e;
+  font-size: 12px;
+  font-weight: 650;
+  color: #3f4b61;
 }
 
 .microcopy {
   margin: 7px 0 0;
   color: #7b8496;
-  font-size: 10.5px;
-  line-height: 1.45;
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.5;
 }
 
 .canvas-column {
@@ -264,6 +270,7 @@ select:focus {
 .selected-editor {
   flex: 1;
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .selected-name {
@@ -276,7 +283,19 @@ select:focus {
 }
 
 .selected-editor select {
-  width: 140px;
+  width: 170px;
+}
+
+.editor-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.editor-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #667085;
 }
 
 .check {
@@ -308,57 +327,118 @@ select:focus {
 }
 
 .react-flow__node {
-  min-width: 132px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border-style: solid;
-  box-shadow: 0 5px 16px rgba(32, 47, 78, 0.08);
-  font-size: 12px;
-  font-weight: 650;
+  min-width: 150px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 13.5px;
+  font-weight: 700;
 }
 
-.react-flow__node.node-exposure {
+.causal-node {
+  position: relative;
+  min-width: 150px;
+  min-height: 52px;
+  padding: 12px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 2px solid #9aa6bc;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 5px 16px rgba(32, 47, 78, 0.09);
+}
+
+.causal-node.node-exposure {
   background: #e9f1ff;
   border-color: #4777cf;
 }
 
-.react-flow__node.node-outcome {
+.causal-node.node-outcome {
   background: #ffeded;
   border-color: #d45e5e;
 }
 
-.react-flow__node.node-covariate {
+.causal-node.node-covariate {
   background: #fff;
-  border-color: #9aa6bc;
+  border-color: #8e9aaf;
 }
 
-.react-flow__node.node-unmeasured {
-  background: #f0f1f3;
-  border-color: #7d8797;
+.causal-node.node-unobserved {
+  background: #f1f2f4;
+  border-color: #747f90;
   border-style: dashed;
 }
 
-.react-flow__node.node-selection {
-  background: #fff2dd;
-  border-color: #c88e39;
+.causal-node.node-selected {
+  outline: 3px double #c88e39;
+  outline-offset: 2px;
 }
 
-.react-flow__node.node-adjusted {
+.causal-node.node-adjusted {
   box-shadow:
-    0 0 0 4px rgba(244, 181, 55, 0.35),
-    0 5px 16px rgba(32, 47, 78, 0.08);
+    0 0 0 4px rgba(244, 181, 55, 0.38),
+    0 5px 16px rgba(32, 47, 78, 0.09);
+}
+
+.causal-node.node-current {
+  border-width: 3px;
+}
+
+.node-label {
+  color: #172033;
+  font-size: 13.5px;
+  font-weight: 750;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.node-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+}
+
+.node-badges span {
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(91, 101, 120, 0.25);
+  color: #4b5669;
+  font-size: 9.5px;
+  font-weight: 700;
 }
 
 .react-flow__edge-path {
-  stroke: #5b6578;
-  stroke-width: 1.7;
+  stroke: #4c586c;
+  stroke-width: 2;
 }
 
 .react-flow__handle {
-  width: 8px;
-  height: 8px;
-  background: #536075;
+  width: 11px;
+  height: 11px;
+  background: #40516d;
   border: 2px solid #fff;
+}
+
+.handle-left.handle-target {
+  top: 38%;
+}
+
+.handle-left.handle-source {
+  top: 65%;
+}
+
+.handle-right.handle-target {
+  top: 38%;
+}
+
+.handle-right.handle-source {
+  top: 65%;
 }
 
 .legend {
@@ -381,7 +461,8 @@ select:focus {
   align-items: center;
   gap: 5px;
   color: #526078;
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .dot {
@@ -397,6 +478,10 @@ select:focus {
 
 .dot.outcome {
   background: #d45e5e;
+}
+
+.dot.covariate {
+  background: #8e9aaf;
 }
 
 .dot.adjusted {
@@ -423,8 +508,9 @@ select:focus {
   border-radius: 10px;
   border: 1px solid #e0e5ee;
   background: #fff;
-  font-size: 11.5px;
-  line-height: 1.5;
+  font-size: 12.5px;
+  font-weight: 550;
+  line-height: 1.55;
 }
 
 .diagnostic-card.ok {
@@ -449,7 +535,7 @@ select:focus {
 
 .card-title {
   margin-bottom: 5px;
-  font-weight: 720;
+  font-weight: 760;
   color: #27354d;
 }
 
@@ -517,4 +603,22 @@ select:focus {
   .selected-name {
     display: none;
   }
+}
+
+.role-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.role-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #eef3ff;
+  border: 1px solid #cfdbfb;
+  color: #2f4b94;
+  font-size: 11px;
+  font-weight: 700;
 }
