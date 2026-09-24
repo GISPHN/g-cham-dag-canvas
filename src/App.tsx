@@ -13,6 +13,7 @@ import {
   type Node,
 } from "@xyflow/react";
 import { Download, Plus, RotateCcw, Save, Trash2, Upload } from "lucide-react";
+import CausalNode from "./components/CausalNode";
 import type { CausalNodeData, ProjectState, QuestionFramework, VariableRole } from "./types";
 import {
   classifyRelativeRoles,
@@ -48,20 +49,17 @@ const frameworkFields: Record<QuestionFramework["mode"], Array<{ key: string; la
 };
 
 const roleLabels: Record<VariableRole, string> = {
-  exposure: "曝露",
+  exposure: "曝露・介入",
   outcome: "アウトカム",
-  covariate: "その他の変数",
-  unmeasured: "未測定変数",
-  selection: "選択要因",
+  covariate: "共変量",
 };
 
-const roleClass: Record<VariableRole, string> = {
-  exposure: "node-exposure",
-  outcome: "node-outcome",
-  covariate: "node-covariate",
-  unmeasured: "node-unmeasured",
-  selection: "node-selection",
-};
+const measurementLabels = {
+  observed: "観測あり（Observed）",
+  unobserved: "未観測・潜在（Unobserved / Latent）",
+} as const;
+
+const nodeTypes = { causal: CausalNode };
 
 function starterProject(): ProjectState {
   return {
@@ -72,9 +70,9 @@ function starterProject(): ProjectState {
       values: { P: "成人", E: "運動", C: "運動量が少ない群", O: "心血管疾患" },
     },
     nodes: [
-      { id: "age", position: { x: 90, y: 90 }, data: { label: "年齢", role: "covariate", measurement: "measured" } },
-      { id: "exercise", position: { x: 330, y: 180 }, data: { label: "運動", role: "exposure", measurement: "measured" } },
-      { id: "cvd", position: { x: 640, y: 180 }, data: { label: "心血管疾患", role: "outcome", measurement: "measured" } },
+      { id: "age", position: { x: 90, y: 90 }, data: { label: "年齢", role: "covariate", measurement: "observed" } },
+      { id: "exercise", position: { x: 330, y: 180 }, data: { label: "運動", role: "exposure", measurement: "observed" } },
+      { id: "cvd", position: { x: 640, y: 180 }, data: { label: "心血管疾患", role: "outcome", measurement: "observed" } },
     ],
     edges: [
       { id: "e-age-ex", source: "age", target: "exercise" },
@@ -85,7 +83,23 @@ function starterProject(): ProjectState {
 }
 
 function normalizeNode(n: ProjectState["nodes"][number]): Node<CausalNodeData> {
-  return { ...n, type: "default", data: { ...n.data } };
+  const legacyRole = n.data.role as string;
+  const legacyMeasurement = n.data.measurement as string;
+  const role: VariableRole =
+    legacyRole === "exposure" || legacyRole === "outcome" ? legacyRole : "covariate";
+  const measurement =
+    legacyRole === "unmeasured" ||
+    legacyMeasurement === "unmeasured" ||
+    legacyMeasurement === "unavailable"
+      ? "unobserved"
+      : "observed";
+  const selected = Boolean(n.data.selected || legacyRole === "selection");
+
+  return {
+    ...n,
+    type: "causal",
+    data: { ...n.data, role, measurement, selected },
+  };
 }
 
 function normalizeEdge(e: ProjectState["edges"][number]): Edge {
@@ -113,18 +127,29 @@ export default function App() {
 
   const exposure = nodes.find((n) => n.data.role === "exposure");
   const outcome = nodes.find((n) => n.data.role === "outcome");
-  const adjusted = useMemo(() => new Set(nodes.filter((n) => n.data.adjusted).map((n) => n.id)), [nodes]);
+  const adjusted = useMemo(
+    () => new Set(nodes.filter((n) => n.data.adjusted).map((n) => n.id)),
+    [nodes],
+  );
+  const selectedForAnalysis = useMemo(
+    () => new Set(nodes.filter((n) => n.data.selected).map((n) => n.id)),
+    [nodes],
+  );
+  const conditioned = useMemo(
+    () => new Set([...adjusted, ...selectedForAnalysis]),
+    [adjusted, selectedForAnalysis],
+  );
   const cycle = useMemo(() => hasDirectedCycle(nodes, edges), [nodes, edges]);
 
   const diagnostics = useMemo(() => {
     if (!exposure || !outcome || cycle) return null;
     return {
-      backdoor: diagnoseBackdoorPaths(edges, exposure.id, outcome.id, adjusted),
+      backdoor: diagnoseBackdoorPaths(edges, exposure.id, outcome.id, conditioned),
       directed: directedPaths(edges, exposure.id, outcome.id),
-      minimal: minimalAdjustmentSets(nodes, edges, exposure.id, outcome.id),
+      minimal: minimalAdjustmentSets(nodes, edges, exposure.id, outcome.id, 12, selectedForAnalysis),
       roles: classifyRelativeRoles(nodes, edges, exposure.id, outcome.id),
     };
-  }, [nodes, edges, adjusted, exposure, outcome, cycle]);
+  }, [nodes, edges, conditioned, selectedForAnalysis, exposure, outcome, cycle]);
 
   const labelFor = (id: string) => nodes.find((n) => n.id === id)?.data.label ?? id;
 
@@ -147,15 +172,7 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [project]);
 
-  const styledNodes = useMemo(
-    () =>
-      nodes.map((n) => ({
-        ...n,
-        className: roleClass[n.data.role] + (n.data.adjusted ? " node-adjusted" : ""),
-        style: { borderWidth: n.id === selectedNodeId ? 3 : 1.5 },
-      })),
-    [nodes, selectedNodeId],
-  );
+  const styledNodes = nodes;
 
   const onConnect = (connection: Connection) => {
     if (!connection.source || !connection.target || connection.source === connection.target) return;
@@ -186,7 +203,7 @@ export default function App() {
         {
           id,
           position: { x: 180 + demoted.length * 35, y: 120 + (demoted.length % 5) * 90 },
-          data: { label: trimmed, role, measurement: "measured", adjusted: false },
+          data: { label: trimmed, role, measurement: "observed", adjusted: false, selected: false },
         },
       ];
     });
@@ -256,7 +273,7 @@ export default function App() {
   };
 
   const activeBackdoors = diagnostics?.backdoor.filter((p) => p.active) ?? [];
-  const adjustedCollider = diagnostics?.roles.colliders.filter((id) => adjusted.has(id)) ?? [];
+  const adjustedCollider = diagnostics?.roles.colliders.filter((id) => conditioned.has(id)) ?? [];
   const adjustedMediator = diagnostics?.roles.mediators.filter((id) => adjusted.has(id)) ?? [];
 
   return (
@@ -334,16 +351,36 @@ export default function App() {
             {selected && (
               <div className="selected-editor">
                 <span className="selected-name">{selected.data.label}</span>
-                <select value={selected.data.role} onChange={(e) => updateSelected({ role: e.target.value as VariableRole })}>
-                  {Object.entries(roleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
+                <div className="editor-group">
+                  <span className="editor-label">変数の種類</span>
+                  <select value={selected.data.role} onChange={(e) => updateSelected({ role: e.target.value as VariableRole })}>
+                    {Object.entries(roleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </div>
+                <div className="editor-group">
+                  <span className="editor-label">観測状態</span>
+                  <select
+                    value={selected.data.measurement}
+                    onChange={(e) => updateSelected({ measurement: e.target.value as CausalNodeData["measurement"] })}
+                  >
+                    {Object.entries(measurementLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </div>
                 <label className="check">
                   <input
                     type="checkbox"
                     checked={Boolean(selected.data.adjusted)}
                     onChange={(e) => updateSelected({ adjusted: e.target.checked })}
                   />
-                  調整
+                  調整する（Adjusted）
+                </label>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selected.data.selected)}
+                    onChange={(e) => updateSelected({ selected: e.target.checked })}
+                  />
+                  選択条件あり（Selected）
                 </label>
                 <button className="icon-danger" title="変数を削除" onClick={deleteSelected}><Trash2 size={16} /></button>
               </div>
@@ -354,6 +391,7 @@ export default function App() {
             <ReactFlow
               nodes={styledNodes}
               edges={edges}
+              nodeTypes={nodeTypes}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
@@ -367,10 +405,11 @@ export default function App() {
               <MiniMap pannable zoomable />
             </ReactFlow>
             <div className="legend">
-              <span className="legend-item"><i className="dot exposure" />曝露</span>
+              <span className="legend-item"><i className="dot exposure" />曝露・介入</span>
               <span className="legend-item"><i className="dot outcome" />アウトカム</span>
-              <span className="legend-item"><i className="dot adjusted" />調整中</span>
-              <span className="legend-item"><i className="dot unmeasured" />未測定</span>
+              <span className="legend-item"><i className="dot covariate" />共変量</span>
+              <span className="legend-item"><i className="dot adjusted" />Adjusted</span>
+              <span className="legend-item"><i className="dot unmeasured" />Unobserved / Latent</span>
             </div>
           </div>
         </section>
@@ -429,7 +468,7 @@ export default function App() {
               {adjustedCollider.length > 0 && (
                 <div className="diagnostic-card danger">
                   <div className="card-title">コライダーへの条件付けに注意</div>
-                  <div>{adjustedCollider.map(labelFor).join("、")} を調整しています。閉じていた経路が開く可能性があります。</div>
+                  <div>{adjustedCollider.map(labelFor).join("、")} に条件付けています。Adjusted または Selected により、閉じていた経路が開く可能性があります。</div>
                 </div>
               )}
 
@@ -440,14 +479,30 @@ export default function App() {
                 </div>
               )}
 
-              {nodes.some((n) => n.data.role === "unmeasured") && (
+              {nodes.some((n) => n.data.measurement === "unobserved") && (
                 <div className="diagnostic-card">
-                  <div className="card-title">未測定変数</div>
-                  <div>未測定として指定した変数があります。必要なバックドアパスを遮断できない場合、未測定交絡が残る可能性があります。</div>
+                  <div className="card-title">未観測・潜在変数</div>
+                  <div>未観測・潜在（Unobserved / Latent）として指定した変数があります。必要なバックドアパスを観測変数で遮断できない場合、未測定交絡が残る可能性があります。</div>
                 </div>
               )}
             </>
           ) : null}
+
+          {selected && diagnostics && (
+            <div className="diagnostic-card">
+              <div className="card-title">選択中の変数：DAG上の役割</div>
+              <div className="role-summary">
+                {diagnostics.roles.mediators.includes(selected.id) && <span className="role-pill">媒介変数（Mediator）</span>}
+                {diagnostics.roles.colliders.includes(selected.id) && <span className="role-pill">コライダー（Collider）</span>}
+                {diagnostics.minimal.some((set) => set.includes(selected.id)) && <span className="role-pill">調整集合の候補</span>}
+                {!diagnostics.roles.mediators.includes(selected.id) &&
+                  !diagnostics.roles.colliders.includes(selected.id) &&
+                  !diagnostics.minimal.some((set) => set.includes(selected.id)) && (
+                    <span className="muted">現在のExposureとOutcomeに対する主要な構造上の役割は検出されていません。</span>
+                  )}
+              </div>
+            </div>
+          )}
 
           <div className="diagnostic-card concept">
             <div className="card-title">因果推論チェック</div>
