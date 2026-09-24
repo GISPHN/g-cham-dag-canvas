@@ -17,18 +17,10 @@ export default function CausalNode({ data, selected }: NodeProps<CausalFlowNode>
 
   return (
     <div className={classes}>
-      <Handle
-        id="left-target"
-        type="target"
-        position={Position.Left}
-        className="handle handle-left handle-target"
-      />
-      <Handle
-        id="left-source"
-        type="source"
-        position={Position.Left}
-        className="handle handle-left handle-source"
-      />
+      <Handle id="top" type="source" position={Position.Top} className="handle handle-top" />
+      <Handle id="right" type="source" position={Position.Right} className="handle handle-right" />
+      <Handle id="bottom" type="source" position={Position.Bottom} className="handle handle-bottom" />
+      <Handle id="left" type="source" position={Position.Left} className="handle handle-left" />
 
       <div className="node-label">{data.label}</div>
       <div className="node-badges">
@@ -37,19 +29,6 @@ export default function CausalNode({ data, selected }: NodeProps<CausalFlowNode>
         {data.adjusted && <span>調整</span>}
         {data.selected && <span>Selected</span>}
       </div>
-
-      <Handle
-        id="right-target"
-        type="target"
-        position={Position.Right}
-        className="handle handle-right handle-target"
-      />
-      <Handle
-        id="right-source"
-        type="source"
-        position={Position.Right}
-        className="handle handle-right handle-source"
-      />
     </div>
   );
 }
