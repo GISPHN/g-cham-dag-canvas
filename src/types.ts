@@ -11,7 +11,7 @@ export type MeasurementStatus =
   | "unmeasured"
   | "unavailable";
 
-export interface CausalNodeData {
+export interface CausalNodeData extends Record<string, unknown> {
   label: string;
   englishLabel?: string;
   role: VariableRole;
