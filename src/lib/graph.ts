@@ -109,24 +109,23 @@ function isCollider(edges: GraphEdge[], left: string, center: string, right: str
 function colliderHasConditionedDescendant(
   edges: GraphEdge[],
   collider: string,
-  adjusted: Set<string>,
+  conditioned: Set<string>,
 ) {
-  if (adjusted.has(collider)) return true;
+  if (conditioned.has(collider)) return true;
   const ds = descendants(edges, collider);
-  return [...adjusted].some((id) => ds.has(id));
+  return [...conditioned].some((id) => ds.has(id));
 }
 
 export function diagnoseBackdoorPaths(
   edges: GraphEdge[],
   exposure: string,
   outcome: string,
-  adjustedIds: Set<string>,
+  conditionedIds: Set<string>,
 ): PathDiagnostic[] {
   return allSimpleUndirectedPaths(edges, exposure, outcome)
     .filter((path) => {
       if (path.length < 2) return false;
-      const firstNeighbor = path[1];
-      return edgeExists(edges, firstNeighbor, exposure);
+      return edgeExists(edges, path[1], exposure);
     })
     .map((path) => {
       const colliderIds: string[] = [];
@@ -140,10 +139,10 @@ export function diagnoseBackdoorPaths(
 
         if (collider) {
           colliderIds.push(center);
-          if (!colliderHasConditionedDescendant(edges, center, adjustedIds)) {
+          if (!colliderHasConditionedDescendant(edges, center, conditionedIds)) {
             active = false;
           }
-        } else if (adjustedIds.has(center)) {
+        } else if (conditionedIds.has(center)) {
           active = false;
         }
       }
@@ -162,6 +161,11 @@ function combinations<T>(items: T[], size: number): T[][] {
     }
   }
   return out;
+}
+
+function isSubset(subset: string[], superset: string[]) {
+  const set = new Set(superset);
+  return subset.every((id) => set.has(id));
 }
 
 export function minimalAdjustmentSets(
@@ -188,19 +192,16 @@ export function minimalAdjustmentSets(
   const baseline = diagnoseBackdoorPaths(edges, exposure, outcome, fixedConditioned);
   if (baseline.every((p) => !p.active)) return [[]];
 
-  const valid: string[][] = [];
+  const minimal: string[][] = [];
   for (let size = 1; size <= eligible.length; size++) {
-    for (const set of combinations(eligible, size)) {
-      const adjusted = new Set([...fixedConditioned, ...set]);
-      const paths = diagnoseBackdoorPaths(edges, exposure, outcome, adjusted);
-      if (paths.every((p) => !p.active)) {
-        const isSuperset = valid.some((v) => v.every((id) => adjusted.has(id)));
-        if (!isSuperset) valid.push(set);
-      }
+    for (const candidate of combinations(eligible, size)) {
+      if (minimal.some((m) => isSubset(m, candidate))) continue;
+      const conditioned = new Set([...fixedConditioned, ...candidate]);
+      const paths = diagnoseBackdoorPaths(edges, exposure, outcome, conditioned);
+      if (paths.every((p) => !p.active)) minimal.push(candidate);
     }
-    if (valid.length) break;
   }
-  return valid.slice(0, 10);
+  return minimal.slice(0, 20);
 }
 
 export function classifyRelativeRoles(
@@ -208,6 +209,7 @@ export function classifyRelativeRoles(
   edges: GraphEdge[],
   exposure: string,
   outcome: string,
+  minimalSets: string[][] = [],
 ) {
   const directed = directedPaths(edges, exposure, outcome);
   const mediators = new Set<string>();
@@ -217,17 +219,28 @@ export function classifyRelativeRoles(
 
   const allPaths = allSimpleUndirectedPaths(edges, exposure, outcome);
   const colliders = new Set<string>();
+  const colliderPaths: Array<{ nodeId: string; path: string[] }> = [];
   for (const path of allPaths) {
     for (let i = 1; i < path.length - 1; i++) {
       if (isCollider(edges, path[i - 1], path[i], path[i + 1])) {
         colliders.add(path[i]);
+        colliderPaths.push({ nodeId: path[i], path });
       }
+    }
+  }
+
+  const confounders = new Set<string>();
+  if (!(minimalSets.length === 1 && minimalSets[0].length === 0)) {
+    for (const set of minimalSets) {
+      set.forEach((id) => confounders.add(id));
     }
   }
 
   return {
     mediators: [...mediators],
     colliders: [...colliders],
+    colliderPaths,
+    confounders: [...confounders],
     nodeMap: new Map(nodes.map((n) => [n.id, n])),
   };
 }
