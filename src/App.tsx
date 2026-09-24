@@ -104,7 +104,7 @@ export default function App() {
 
   const [title, setTitle] = useState(initial.title);
   const [question, setQuestion] = useState<QuestionFramework>(initial.question);
-  const [nodes, setNodes, onNodesChange] = useNodesState<CausalNodeData>(initial.nodes.map(normalizeNode));
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<CausalNodeData>>(initial.nodes.map(normalizeNode));
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges.map(normalizeEdge));
   const [newVariable, setNewVariable] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
