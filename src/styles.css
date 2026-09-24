@@ -120,6 +120,12 @@ button.secondary:hover {
   background: #f8faff;
 }
 
+.new-project-button {
+  border-color: #c8d0df;
+  background: #f8fafc;
+  font-weight: 650;
+}
+
 button.wide {
   width: 100%;
 }
@@ -363,8 +369,8 @@ select:focus {
 }
 
 .causal-node.node-covariate {
-  background: #fff;
-  border-color: #8e9aaf;
+  background: #f3f5f8;
+  border-color: #7e8ba2;
 }
 
 .causal-node.node-unobserved {
