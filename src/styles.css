@@ -445,20 +445,17 @@ select:focus {
   border: 2px solid #fff;
 }
 
-.handle-left.handle-target {
-  top: 38%;
+.handle-top,
+.handle-right,
+.handle-bottom,
+.handle-left {
+  z-index: 5;
 }
 
-.handle-left.handle-source {
-  top: 65%;
-}
-
-.handle-right.handle-target {
-  top: 38%;
-}
-
-.handle-right.handle-source {
-  top: 65%;
+.react-flow__handle:hover {
+  width: 15px;
+  height: 15px;
+  background: #2447d8;
 }
 
 .legend {
@@ -641,4 +638,51 @@ select:focus {
   color: #2f4b94;
   font-size: 11px;
   font-weight: 700;
+}
+
+
+.graph-notice {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  max-width: 520px;
+  padding: 9px 13px;
+  border: 1px solid #efc5c5;
+  border-radius: 9px;
+  background: rgba(255, 247, 247, 0.97);
+  color: #9f2f2f;
+  box-shadow: 0 4px 14px rgba(52, 38, 38, 0.1);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.adjustment-status {
+  margin: 7px 0 5px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.ok-text {
+  background: #eef8f2;
+  color: #276544;
+}
+
+.warn-text {
+  background: #fff2e8;
+  color: #9b4a25;
+}
+
+.role-path {
+  width: 100%;
+  padding: 6px 7px;
+  border-radius: 7px;
+  background: #f6f7fb;
+  color: #4b5669;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.45;
 }
