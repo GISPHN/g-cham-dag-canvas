@@ -1,15 +1,11 @@
 export type VariableRole =
   | "exposure"
   | "outcome"
-  | "covariate"
-  | "unmeasured"
-  | "selection";
+  | "covariate";
 
 export type MeasurementStatus =
-  | "measured"
-  | "planned"
-  | "unmeasured"
-  | "unavailable";
+  | "observed"
+  | "unobserved";
 
 export interface CausalNodeData extends Record<string, unknown> {
   label: string;
@@ -19,6 +15,7 @@ export interface CausalNodeData extends Record<string, unknown> {
   time?: string;
   note?: string;
   adjusted?: boolean;
+  selected?: boolean;
 }
 
 export interface QuestionFramework {
