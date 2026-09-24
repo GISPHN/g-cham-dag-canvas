@@ -13,7 +13,7 @@ import {
   type Edge,
   type Node,
 } from "@xyflow/react";
-import { Download, Plus, RotateCcw, Save, Trash2, Upload } from "lucide-react";
+import { Download, FilePlus2, Plus, RotateCcw, Save, Trash2, Upload } from "lucide-react";
 import CausalNode from "./components/CausalNode";
 import type { CausalNodeData, ProjectState, QuestionFramework, VariableRole } from "./types";
 import {
@@ -126,7 +126,7 @@ export default function App() {
   const [saveMessage, setSaveMessage] = useState(restored ? "前回の内容を復元しました" : "新しいプロジェクト");
   const fileRef = useRef<HTMLInputElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, setViewport } = useReactFlow();
 
   const exposure = nodes.find((n) => n.data.role === "exposure");
   const outcome = nodes.find((n) => n.data.role === "outcome");
@@ -214,6 +214,7 @@ export default function App() {
         ...demoted,
         {
           id,
+          type: "causal",
           position,
           data: { label: trimmed, role, measurement: "observed", adjusted: false, selected: false },
         },
@@ -253,6 +254,32 @@ export default function App() {
     setNodes((ns) => ns.filter((n) => n.id !== selectedNodeId));
     setEdges((es) => es.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId));
     setSelectedNodeId(null);
+  };
+
+  const newProject = () => {
+    const hasContent =
+      nodes.length > 0 ||
+      edges.length > 0 ||
+      title !== "無題の研究" ||
+      Object.values(question.values).some((value) => value.trim().length > 0);
+
+    if (
+      hasContent &&
+      !window.confirm(
+        "現在の研究内容を消去して、新しい研究を開始します。保存していない内容は失われます。よろしいですか？",
+      )
+    ) {
+      return;
+    }
+
+    setTitle("無題の研究");
+    setQuestion({ mode: "HAPECOM", values: {} });
+    setNodes([]);
+    setEdges([]);
+    setNewVariable("");
+    setSelectedNodeId(null);
+    setSaveMessage("新しいプロジェクト");
+    void setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 250 });
   };
 
   const loadStarter = () => {
@@ -297,6 +324,7 @@ export default function App() {
         </div>
         <div className="top-actions">
           <span className="save-state"><Save size={15} /> {saveMessage}</span>
+          <button className="secondary new-project-button" onClick={newProject}><FilePlus2 size={16} /> 新規作成</button>
           <button className="secondary" onClick={loadStarter}><RotateCcw size={16} /> 例題</button>
           <button className="secondary" onClick={() => fileRef.current?.click()}><Upload size={16} /> 読込</button>
           <button className="primary" onClick={() => downloadProject(project)}><Download size={16} /> 保存</button>
