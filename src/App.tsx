@@ -6,6 +6,7 @@ import {
   MarkerType,
   MiniMap,
   ReactFlow,
+  useReactFlow,
   useEdgesState,
   useNodesState,
   type Connection,
@@ -124,6 +125,8 @@ export default function App() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState(restored ? "前回の内容を復元しました" : "新しいプロジェクト");
   const fileRef = useRef<HTMLInputElement>(null);
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
+  const { screenToFlowPosition } = useReactFlow();
 
   const exposure = nodes.find((n) => n.data.role === "exposure");
   const outcome = nodes.find((n) => n.data.role === "outcome");
@@ -192,6 +195,15 @@ export default function App() {
     if (!trimmed) return;
     const id = "n-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
 
+    const canvasRect = canvasWrapRef.current?.getBoundingClientRect();
+    const stagger = nodes.length % 4;
+    const position = canvasRect
+      ? screenToFlowPosition({
+          x: canvasRect.left + 150 + stagger * 34,
+          y: canvasRect.top + 105 + stagger * 26,
+        })
+      : { x: 140 + stagger * 34, y: 100 + stagger * 26 };
+
     setNodes((ns) => {
       const demoted = ns.map((n) => {
         if (role === "exposure" && n.data.role === "exposure") return { ...n, data: { ...n.data, role: "covariate" as VariableRole } };
@@ -202,7 +214,7 @@ export default function App() {
         ...demoted,
         {
           id,
-          position: { x: 180 + demoted.length * 35, y: 120 + (demoted.length % 5) * 90 },
+          position,
           data: { label: trimmed, role, measurement: "observed", adjusted: false, selected: false },
         },
       ];
@@ -387,7 +399,7 @@ export default function App() {
             )}
           </div>
 
-          <div className="canvas-wrap">
+          <div className="canvas-wrap" ref={canvasWrapRef}>
             <ReactFlow
               nodes={styledNodes}
               edges={edges}
