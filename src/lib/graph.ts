@@ -178,8 +178,8 @@ export function minimalAdjustmentSets(
         n.id !== exposure &&
         n.id !== outcome &&
         !exposureDescendants.has(n.id) &&
-        n.data.role !== "unmeasured" &&
-        n.data.role !== "selection",
+        n.data.measurement !== "unobserved" &&
+        !n.data.selected,
     )
     .map((n) => n.id)
     .slice(0, limitCandidates);
