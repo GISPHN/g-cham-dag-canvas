@@ -170,6 +170,7 @@ export function minimalAdjustmentSets(
   exposure: string,
   outcome: string,
   limitCandidates = 12,
+  fixedConditioned: Set<string> = new Set(),
 ): string[][] {
   const exposureDescendants = descendants(edges, exposure);
   const eligible = nodes
@@ -184,13 +185,13 @@ export function minimalAdjustmentSets(
     .map((n) => n.id)
     .slice(0, limitCandidates);
 
-  const baseline = diagnoseBackdoorPaths(edges, exposure, outcome, new Set());
+  const baseline = diagnoseBackdoorPaths(edges, exposure, outcome, fixedConditioned);
   if (baseline.every((p) => !p.active)) return [[]];
 
   const valid: string[][] = [];
   for (let size = 1; size <= eligible.length; size++) {
     for (const set of combinations(eligible, size)) {
-      const adjusted = new Set(set);
+      const adjusted = new Set([...fixedConditioned, ...set]);
       const paths = diagnoseBackdoorPaths(edges, exposure, outcome, adjusted);
       if (paths.every((p) => !p.active)) {
         const isSuperset = valid.some((v) => v.every((id) => adjusted.has(id)));
