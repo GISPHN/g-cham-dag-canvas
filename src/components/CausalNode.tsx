@@ -32,6 +32,7 @@ export default function CausalNode({ data, selected }: NodeProps<CausalFlowNode>
 
       <div className="node-label">{data.label}</div>
       <div className="node-badges">
+        {selected && <span className="selected-badge">選択中</span>}
         {data.measurement === "unobserved" && <span>未観測</span>}
         {data.adjusted && <span>調整</span>}
         {data.selected && <span>Selected</span>}
