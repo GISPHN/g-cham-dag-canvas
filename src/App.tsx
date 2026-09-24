@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addEdge,
   Background,
+  ConnectionMode,
   Controls,
   MarkerType,
   MiniMap,
@@ -124,6 +125,7 @@ export default function App() {
   const [newVariable, setNewVariable] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState(restored ? "前回の内容を復元しました" : "新しいプロジェクト");
+  const [graphNotice, setGraphNotice] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, setViewport } = useReactFlow();
@@ -146,11 +148,27 @@ export default function App() {
 
   const diagnostics = useMemo(() => {
     if (!exposure || !outcome || cycle) return null;
+    const baselineBackdoor = diagnoseBackdoorPaths(
+      edges,
+      exposure.id,
+      outcome.id,
+      selectedForAnalysis,
+    );
+    const backdoor = diagnoseBackdoorPaths(edges, exposure.id, outcome.id, conditioned);
+    const minimal = minimalAdjustmentSets(
+      nodes,
+      edges,
+      exposure.id,
+      outcome.id,
+      12,
+      selectedForAnalysis,
+    );
     return {
-      backdoor: diagnoseBackdoorPaths(edges, exposure.id, outcome.id, conditioned),
+      baselineBackdoor,
+      backdoor,
       directed: directedPaths(edges, exposure.id, outcome.id),
-      minimal: minimalAdjustmentSets(nodes, edges, exposure.id, outcome.id, 12, selectedForAnalysis),
-      roles: classifyRelativeRoles(nodes, edges, exposure.id, outcome.id),
+      minimal,
+      roles: classifyRelativeRoles(nodes, edges, exposure.id, outcome.id, minimal),
     };
   }, [nodes, edges, conditioned, selectedForAnalysis, exposure, outcome, cycle]);
 
@@ -177,17 +195,70 @@ export default function App() {
 
   const styledNodes = nodes;
 
+  const pathEdgeKey = (a: string, b: string) => [a, b].sort().join("::");
+
+  const displayEdges = useMemo(() => {
+    const activeKeys = new Set<string>();
+    const blockedKeys = new Set<string>();
+
+    diagnostics?.backdoor.forEach((path) => {
+      for (let i = 0; i < path.nodes.length - 1; i++) {
+        const key = pathEdgeKey(path.nodes[i], path.nodes[i + 1]);
+        if (path.active) activeKeys.add(key);
+        else blockedKeys.add(key);
+      }
+    });
+
+    return edges.map((edge) => {
+      const key = pathEdgeKey(edge.source, edge.target);
+      if (activeKeys.has(key)) {
+        return {
+          ...edge,
+          style: { stroke: "#c2413b", strokeWidth: 3 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: "#c2413b" },
+          animated: true,
+        };
+      }
+      if (conditioned.size > 0 && blockedKeys.has(key)) {
+        return {
+          ...edge,
+          style: { stroke: "#9aa3b2", strokeWidth: 2, strokeDasharray: "6 5", opacity: 0.55 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: "#9aa3b2" },
+          animated: false,
+        };
+      }
+      return {
+        ...edge,
+        style: { stroke: "#4c586c", strokeWidth: 2 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "#4c586c" },
+        animated: false,
+      };
+    });
+  }, [edges, diagnostics, conditioned]);
+
   const onConnect = (connection: Connection) => {
     if (!connection.source || !connection.target || connection.source === connection.target) return;
-    const duplicate = edges.some((e) => e.source === connection.source && e.target === connection.target);
-    if (duplicate) return;
-    const edgeId = "e-" + connection.source + "-" + connection.target + "-" + Date.now();
-    setEdges((eds) =>
-      addEdge(
-        { ...connection, id: edgeId, markerEnd: { type: MarkerType.ArrowClosed } },
-        eds,
-      ),
+    const duplicate = edges.some(
+      (e) => e.source === connection.source && e.target === connection.target,
     );
+    if (duplicate) {
+      setGraphNotice("同じ向きの矢印はすでに存在します。");
+      return;
+    }
+
+    const candidate: Edge = {
+      ...connection,
+      id: "e-" + connection.source + "-" + connection.target + "-" + Date.now(),
+      markerEnd: { type: MarkerType.ArrowClosed },
+    };
+
+    if (hasDirectedCycle(nodes, [...edges, candidate])) {
+      setGraphNotice("この矢印を追加すると有向サイクルが生じるため、DAGにはできません。");
+      return;
+    }
+
+    setGraphNotice(null);
+    setEdges((eds) => addEdge(candidate, eds));
   };
 
   const addVariable = (label = newVariable, role: VariableRole = "covariate") => {
@@ -312,8 +383,10 @@ export default function App() {
   };
 
   const activeBackdoors = diagnostics?.backdoor.filter((p) => p.active) ?? [];
+  const baselineActiveBackdoors = diagnostics?.baselineBackdoor.filter((p) => p.active) ?? [];
   const adjustedCollider = diagnostics?.roles.colliders.filter((id) => conditioned.has(id)) ?? [];
   const adjustedMediator = diagnostics?.roles.mediators.filter((id) => adjusted.has(id)) ?? [];
+  const confoundingExists = baselineActiveBackdoors.length > 0;
 
   return (
     <div className="app-shell">
@@ -430,8 +503,9 @@ export default function App() {
           <div className="canvas-wrap" ref={canvasWrapRef}>
             <ReactFlow
               nodes={styledNodes}
-              edges={edges}
+              edges={displayEdges}
               nodeTypes={nodeTypes}
+              connectionMode={ConnectionMode.Loose}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
@@ -441,6 +515,7 @@ export default function App() {
               deleteKeyCode={["Backspace", "Delete"]}
             >
               <Background gap={24} size={1} />
+              {graphNotice && <div className="graph-notice">{graphNotice}</div>}
               <Controls />
               <MiniMap pannable zoomable />
             </ReactFlow>
@@ -478,9 +553,21 @@ export default function App() {
                 {diagnostics.directed.length === 0 && <div className="muted">曝露からアウトカムへの有向経路がありません。</div>}
               </div>
 
-              <div className={activeBackdoors.length ? "diagnostic-card warn" : "diagnostic-card ok"}>
-                <div className="card-title">バックドアパス</div>
-                <div className="metric">開いている経路 {activeBackdoors.length} 本</div>
+              <div className={confoundingExists ? "diagnostic-card warn" : "diagnostic-card ok"}>
+                <div className="card-title">交絡とバックドアパス</div>
+                <div className="metric">
+                  {confoundingExists ? "交絡あり" : "交絡を示す開いたバックドアパスなし"}
+                </div>
+                {confoundingExists && adjusted.size > 0 && (
+                  <div className={activeBackdoors.length === 0 ? "adjustment-status ok-text" : "adjustment-status warn-text"}>
+                    {activeBackdoors.length === 0
+                      ? "現在の調整で、開いていたバックドアパスはすべて遮断されています。"
+                      : `調整後も ${activeBackdoors.length} 本のバックドアパスが開いています。`}
+                  </div>
+                )}
+                <div className="microcopy">
+                  赤い矢印は現在開いているバックドアパス、灰色の破線は条件付けで閉じた経路です。
+                </div>
                 <div className="path-list">
                   {diagnostics.backdoor.slice(0, 8).map((p, i) => (
                     <div key={i} className={p.active ? "path active-path" : "path blocked-path"}>
@@ -532,10 +619,22 @@ export default function App() {
             <div className="diagnostic-card">
               <div className="card-title">選択中の変数：DAG上の役割</div>
               <div className="role-summary">
+                {diagnostics.roles.confounders.includes(selected.id) && (
+                  <span className="role-pill">交絡因子（Confounder）</span>
+                )}
                 {diagnostics.roles.mediators.includes(selected.id) && <span className="role-pill">媒介変数（Mediator）</span>}
-                {diagnostics.roles.colliders.includes(selected.id) && <span className="role-pill">コライダー（Collider）</span>}
-                {diagnostics.minimal.some((set) => set.includes(selected.id)) && <span className="role-pill">調整集合の候補</span>}
-                {!diagnostics.roles.mediators.includes(selected.id) &&
+                {diagnostics.roles.colliders.includes(selected.id) && <span className="role-pill">コライダー（Collider：経路依存）</span>}
+                {diagnostics.minimal.some((set) => set.includes(selected.id)) && <span className="role-pill">最小十分調整集合の構成変数</span>}
+                {diagnostics.roles.colliderPaths
+                  .filter((item) => item.nodeId === selected.id)
+                  .slice(0, 3)
+                  .map((item, i) => (
+                    <div className="role-path" key={i}>
+                      Colliderとなる経路：{item.path.map(labelFor).join(" — ")}
+                    </div>
+                  ))}
+                {!diagnostics.roles.confounders.includes(selected.id) &&
+                  !diagnostics.roles.mediators.includes(selected.id) &&
                   !diagnostics.roles.colliders.includes(selected.id) &&
                   !diagnostics.minimal.some((set) => set.includes(selected.id)) && (
                     <span className="muted">現在のExposureとOutcomeに対する主要な構造上の役割は検出されていません。</span>
