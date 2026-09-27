@@ -3,6 +3,7 @@ import type { Edge, Node } from "@xyflow/react";
 import type { CausalNodeData } from "../types";
 import {
   diagnoseBackdoorPathsForExposures,
+  enumerateMinimalAdjustmentSetsForExposures,
   forbiddenSetForAdjustment,
   minimalAdjustmentSetsForExposures,
   properDirectedPathsForExposures,
@@ -121,4 +122,29 @@ describe("generalized adjustment criterion", () => {
     expect(sets).toContainEqual(["V3"]);
     expect(sets).toHaveLength(2);
   });
+  it("does not impose the former 12-candidate cutoff", () => {
+    const confounders = Array.from({ length: 13 }, (_, i) => `L${i + 1}`);
+    const nodes = [
+      node("X", "exposure"),
+      node("Y", "outcome"),
+      ...confounders.map((id) => node(id)),
+    ];
+    const edges = [
+      edge("X", "Y"),
+      ...confounders.flatMap((id) => [edge(id, "X"), edge(id, "Y")]),
+    ];
+
+    const result = enumerateMinimalAdjustmentSetsForExposures(
+      nodes,
+      edges,
+      ["X"],
+      "Y",
+    );
+
+    expect(result.truncated).toBe(false);
+    expect(result.sets).toHaveLength(1);
+    expect(result.sets[0]).toEqual([...confounders].sort());
+    expect(result.sets[0]).toHaveLength(13);
+  });
+
 });
