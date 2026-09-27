@@ -28,6 +28,7 @@ import {
   diagnoseBackdoorPathsForExposures,
   directedPathsForExposures,
   hasDirectedCycle,
+  isValidAdjustmentSetForExposures,
   minimalAdjustmentSetsForExposures,
 } from "./lib/graph";
 import { downloadProject, loadProject, readProjectFile, saveProject } from "./lib/storage";
@@ -231,11 +232,18 @@ export default function App() {
       12,
       selectedForAnalysis,
     );
+    const adjustmentValidity = isValidAdjustmentSetForExposures(
+      edges,
+      exposureIds,
+      analysisOutcome.id,
+      conditioned,
+    );
     return {
       baselineBackdoor,
       backdoor,
       directed: directedPathsForExposures(edges, exposureIds, analysisOutcome.id),
       minimal,
+      adjustmentValidity,
       roles: classifyRelativeRolesForExposures(
         nodes,
         edges,
@@ -285,6 +293,20 @@ export default function App() {
 
   const pathEdgeKey = (a: string, b: string) => [a, b].sort().join("::");
 
+  const pathText = (path: string[]) => {
+    if (path.length === 0) return "";
+    let text = labelFor(path[0]);
+    for (let i = 0; i < path.length - 1; i++) {
+      const from = path[i];
+      const to = path[i + 1];
+      const forward = edges.some((e) => e.source === from && e.target === to);
+      const backward = edges.some((e) => e.source === to && e.target === from);
+      text += forward ? " → " : backward ? " ← " : " — ";
+      text += labelFor(to);
+    }
+    return text;
+  };
+
   const displayEdges = useMemo(() => {
     const activeKeys = new Set<string>();
     const blockedKeys = new Set<string>();
@@ -297,31 +319,56 @@ export default function App() {
       }
     });
 
-    return edges.map((edge) => {
+    const baseEdges = edges.map((edge) => ({
+      ...edge,
+      style: { stroke: "#4c586c", strokeWidth: 2 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: "#4c586c" },
+      animated: false,
+    }));
+
+    const overlays: Edge[] = [];
+    for (const edge of edges) {
       const key = pathEdgeKey(edge.source, edge.target);
       if (activeKeys.has(key)) {
-        return {
+        overlays.push({
           ...edge,
-          style: { stroke: "#c2413b", strokeWidth: 3 },
-          markerEnd: { type: MarkerType.ArrowClosed, color: "#c2413b" },
-          animated: true,
-        };
-      }
-      if (conditioned.size > 0 && blockedKeys.has(key)) {
-        return {
-          ...edge,
-          style: { stroke: "#9aa3b2", strokeWidth: 2, strokeDasharray: "6 5", opacity: 0.55 },
-          markerEnd: { type: MarkerType.ArrowClosed, color: "#9aa3b2" },
+          id: "overlay-active-" + edge.id,
+          style: {
+            stroke: "#c2413b",
+            strokeWidth: 4,
+            strokeDasharray: "7 6",
+            opacity: 0.82,
+            pointerEvents: "none",
+          },
+          markerEnd: undefined,
           animated: false,
-        };
+          selectable: false,
+          focusable: false,
+          deletable: false,
+          interactionWidth: 0,
+        });
+      } else if (conditioned.size > 0 && blockedKeys.has(key)) {
+        overlays.push({
+          ...edge,
+          id: "overlay-blocked-" + edge.id,
+          style: {
+            stroke: "#b4bcc9",
+            strokeWidth: 4,
+            strokeDasharray: "2 7",
+            opacity: 0.72,
+            pointerEvents: "none",
+          },
+          markerEnd: undefined,
+          animated: false,
+          selectable: false,
+          focusable: false,
+          deletable: false,
+          interactionWidth: 0,
+        });
       }
-      return {
-        ...edge,
-        style: { stroke: "#4c586c", strokeWidth: 2 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: "#4c586c" },
-        animated: false,
-      };
-    });
+    }
+
+    return [...baseEdges, ...overlays];
   }, [edges, diagnostics, conditioned]);
 
   const onConnect = (connection: Connection) => {
@@ -517,6 +564,7 @@ export default function App() {
   const baselineActiveBackdoors = diagnostics?.baselineBackdoor.filter((p) => p.active) ?? [];
   const adjustedCollider = diagnostics?.roles.colliders.filter((id) => conditioned.has(id)) ?? [];
   const adjustedMediator = diagnostics?.roles.mediators.filter((id) => adjusted.has(id)) ?? [];
+  const forbiddenAdjusted = diagnostics?.adjustmentValidity.forbiddenAdjusted ?? [];
   const confoundingExists = baselineActiveBackdoors.length > 0;
 
   return (
@@ -676,7 +724,7 @@ export default function App() {
                   setAnalysisExposureIds((prev) => prev.slice(0, 1));
                 }}
               >
-                単一曝露
+                単一曝露・介入
               </button>
               <button
                 className={effectMode === "joint" ? "tab active" : "tab"}
@@ -688,7 +736,7 @@ export default function App() {
 
             <div className="analysis-field">
               <span className="editor-label">
-                {effectMode === "single" ? "解析対象の曝露・介入" : "同時に介入する曝露・介入"}
+                {effectMode === "single" ? "解析対象の曝露・介入" : "解析対象の複数曝露・介入"}
               </span>
               {exposureNodes.length === 0 ? (
                 <div className="muted">Exposure / Treatment に指定された変数がありません。</div>
@@ -768,14 +816,16 @@ export default function App() {
                 <div className="metric">{diagnostics.directed.length} 本</div>
                 <div className="microcopy">
                   {effectMode === "joint"
-                    ? `${analysisExposures.map((n) => n.data.label).join(" ＋ ")} のjoint intervention → ${analysisOutcome?.data.label}`
+                    ? `${analysisExposures.map((n) => n.data.label).join(" ＋ ")} → ${analysisOutcome?.data.label}`
                     : `${analysisExposures[0]?.data.label} → ${analysisOutcome?.data.label}`}
                 </div>
                 {diagnostics.directed.length === 0 && <div className="muted">選択した曝露・介入からアウトカムへの有向経路がありません。</div>}
               </div>
 
               <div className={confoundingExists ? "diagnostic-card warn" : "diagnostic-card ok"}>
-                <div className="card-title">交絡とバックドアパス</div>
+                <div className="card-title">
+                  {effectMode === "joint" ? "交絡と非因果経路" : "交絡とバックドアパス"}
+                </div>
                 <div className="metric">
                   {confoundingExists ? "交絡あり" : "交絡を示す開いたバックドアパスなし"}
                 </div>
@@ -783,17 +833,17 @@ export default function App() {
                   <div className={activeBackdoors.length === 0 ? "adjustment-status ok-text" : "adjustment-status warn-text"}>
                     {activeBackdoors.length === 0
                       ? "現在の調整で、開いていたバックドアパスはすべて遮断されています。"
-                      : `調整後も ${activeBackdoors.length} 本のバックドアパスが開いています。`}
+                      : `調整後も ${activeBackdoors.length} 本の非因果経路が開いています。`}
                   </div>
                 )}
                 <div className="microcopy">
-                  赤い矢印は現在開いているバックドアパス、灰色の破線は条件付けで閉じた経路です。
+                  元の因果矢印は黒い実線のまま保持しています。赤い破線は現在開いている非因果経路の重ね表示、灰色の点線は条件付けで閉じた経路の重ね表示です。
                 </div>
                 <div className="path-list">
                   {diagnostics.backdoor.slice(0, 8).map((p, i) => (
                     <div key={i} className={p.active ? "path active-path" : "path blocked-path"}>
                       {effectMode === "joint" && <strong>{labelFor(p.exposureId)}: </strong>}
-                      {p.nodes.map(labelFor).join(" — ")}
+                      {pathText(p.nodes)}
                       <span>{p.active ? "　開" : "　閉"}</span>
                     </div>
                   ))}
@@ -811,8 +861,20 @@ export default function App() {
                     </button>
                   ))
                 )}
-                <div className="microcopy">クリックすると現在の調整セットとして反映します。</div>
+                <div className="microcopy">
+                  generalized adjustment criterion に基づく最小十分調整集合です。クリックすると現在の調整セットとして反映します。
+                </div>
               </div>
+
+              {forbiddenAdjusted.length > 0 && (
+                <div className="diagnostic-card danger">
+                  <div className="card-title">調整に使用できない変数が含まれています</div>
+                  <div>
+                    {forbiddenAdjusted.map(labelFor).join("、")} は、選択した因果効果に対する forbidden set に含まれます。
+                    総効果の共変量調整には使用しないでください。
+                  </div>
+                </div>
+              )}
 
               {adjustedCollider.length > 0 && (
                 <div className="diagnostic-card danger">
@@ -841,24 +903,26 @@ export default function App() {
             <div className="diagnostic-card">
               <div className="card-title">選択中の変数：DAG上の役割</div>
               <div className="role-summary">
-                {diagnostics.roles.confounders.includes(selected.id) && (
-                  <span className="role-pill">交絡因子（Confounder）</span>
-                )}
                 {diagnostics.roles.mediators.includes(selected.id) && <span className="role-pill">媒介変数（Mediator）</span>}
                 {diagnostics.roles.colliders.includes(selected.id) && <span className="role-pill">コライダー（Collider：経路依存）</span>}
-                {diagnostics.minimal.some((set) => set.includes(selected.id)) && <span className="role-pill">最小十分調整集合の構成変数</span>}
+                {diagnostics.roles.adjustmentVariables.includes(selected.id) && <span className="role-pill">最小十分調整集合の構成変数</span>}
+                {diagnostics.roles.forbidden.includes(selected.id) &&
+                  !analysisExposureIds.includes(selected.id) &&
+                  selected.id !== analysisOutcomeId && (
+                    <span className="role-pill role-pill-danger">調整禁止（Forbidden）</span>
+                  )}
                 {diagnostics.roles.colliderPaths
                   .filter((item) => item.nodeId === selected.id)
                   .slice(0, 3)
                   .map((item, i) => (
                     <div className="role-path" key={i}>
-                      Colliderとなる経路：{item.path.map(labelFor).join(" — ")}
+                      Colliderとなる経路：{pathText(item.path)}
                     </div>
                   ))}
-                {!diagnostics.roles.confounders.includes(selected.id) &&
-                  !diagnostics.roles.mediators.includes(selected.id) &&
+                {!diagnostics.roles.mediators.includes(selected.id) &&
                   !diagnostics.roles.colliders.includes(selected.id) &&
-                  !diagnostics.minimal.some((set) => set.includes(selected.id)) && (
+                  !diagnostics.roles.adjustmentVariables.includes(selected.id) &&
+                  !diagnostics.roles.forbidden.includes(selected.id) && (
                     <span className="muted">現在のExposureとOutcomeに対する主要な構造上の役割は検出されていません。</span>
                   )}
               </div>
