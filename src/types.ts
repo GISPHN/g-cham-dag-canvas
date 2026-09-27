@@ -7,6 +7,10 @@ export type MeasurementStatus =
   | "observed"
   | "unobserved";
 
+export type EffectMode =
+  | "single"
+  | "joint";
+
 export interface CausalNodeData extends Record<string, unknown> {
   label: string;
   englishLabel?: string;
@@ -23,10 +27,17 @@ export interface QuestionFramework {
   values: Record<string, string>;
 }
 
+export interface AnalysisTarget {
+  effectMode: EffectMode;
+  exposureIds: string[];
+  outcomeId?: string;
+}
+
 export interface ProjectState {
   schemaVersion: 1;
   title: string;
   question: QuestionFramework;
+  analysisTarget?: AnalysisTarget;
   nodes: Array<{
     id: string;
     position: { x: number; y: number };
