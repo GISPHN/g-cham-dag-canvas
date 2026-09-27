@@ -686,3 +686,55 @@ select:focus {
   font-weight: 600;
   line-height: 1.45;
 }
+
+
+.analysis-target-card {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #d9e1ef;
+  border-radius: 10px;
+  background: #fbfcff;
+}
+
+.effect-mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin: 8px 0 10px;
+  padding: 4px;
+  border-radius: 9px;
+  background: #f0f3f8;
+}
+
+.analysis-field + .analysis-field {
+  margin-top: 10px;
+}
+
+.analysis-field .editor-label {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.analysis-checkboxes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 1px solid #d8deea;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.analysis-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.analysis-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
