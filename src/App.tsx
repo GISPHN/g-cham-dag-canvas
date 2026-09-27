@@ -682,7 +682,7 @@ export default function App() {
                 className={effectMode === "joint" ? "tab active" : "tab"}
                 onClick={() => setEffectMode("joint")}
               >
-                Joint intervention
+                複数曝露・介入
               </button>
             </div>
 
@@ -728,7 +728,7 @@ export default function App() {
             </div>
 
             <div className="analysis-field">
-              <span className="editor-label">解析対象のアウトカム</span>
+              <span className="editor-label">解析対象の結果（アウトカム）</span>
               {outcomeNodes.length === 0 ? (
                 <div className="muted">Outcome に指定された変数がありません。</div>
               ) : (
@@ -745,7 +745,7 @@ export default function App() {
             </div>
 
             {effectMode === "joint" && analysisExposureIds.length < 2 && (
-              <div className="microcopy">Joint interventionでは2つ以上の曝露・介入を選択してください。</div>
+              <div className="microcopy">複数曝露・介入では2つ以上の曝露・介入を選択してください。</div>
             )}
           </div>
 
