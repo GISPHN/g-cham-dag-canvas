@@ -16,13 +16,19 @@ import {
 } from "@xyflow/react";
 import { Download, FilePlus2, Plus, RotateCcw, Save, Trash2, Upload } from "lucide-react";
 import CausalNode from "./components/CausalNode";
-import type { CausalNodeData, ProjectState, QuestionFramework, VariableRole } from "./types";
+import type {
+  CausalNodeData,
+  EffectMode,
+  ProjectState,
+  QuestionFramework,
+  VariableRole,
+} from "./types";
 import {
-  classifyRelativeRoles,
-  diagnoseBackdoorPaths,
-  directedPaths,
+  classifyRelativeRolesForExposures,
+  diagnoseBackdoorPathsForExposures,
+  directedPathsForExposures,
   hasDirectedCycle,
-  minimalAdjustmentSets,
+  minimalAdjustmentSetsForExposures,
 } from "./lib/graph";
 import { downloadProject, loadProject, readProjectFile, saveProject } from "./lib/storage";
 
@@ -71,6 +77,11 @@ function starterProject(): ProjectState {
       mode: "PECO",
       values: { P: "成人", E: "運動", C: "運動量が少ない群", O: "心血管疾患" },
     },
+    analysisTarget: {
+      effectMode: "single",
+      exposureIds: ["exercise"],
+      outcomeId: "cvd",
+    },
     nodes: [
       { id: "age", position: { x: 90, y: 90 }, data: { label: "年齢", role: "covariate", measurement: "observed" } },
       { id: "exercise", position: { x: 330, y: 180 }, data: { label: "運動", role: "exposure", measurement: "observed" } },
@@ -114,14 +125,27 @@ export default function App() {
     schemaVersion: 1,
     title: "無題の研究",
     question: { mode: "HAPECOM", values: {} },
+    analysisTarget: { effectMode: "single", exposureIds: [] },
     nodes: [],
     edges: [],
   };
 
   const [title, setTitle] = useState(initial.title);
   const [question, setQuestion] = useState<QuestionFramework>(initial.question);
+  const initialExposureIds =
+    initial.analysisTarget?.exposureIds ??
+    initial.nodes.filter((n) => n.data.role === "exposure").map((n) => n.id).slice(0, 1);
+  const initialOutcomeId =
+    initial.analysisTarget?.outcomeId ??
+    initial.nodes.find((n) => n.data.role === "outcome")?.id;
+
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<CausalNodeData>>(initial.nodes.map(normalizeNode));
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges.map(normalizeEdge));
+  const [effectMode, setEffectMode] = useState<EffectMode>(
+    initial.analysisTarget?.effectMode ?? "single",
+  );
+  const [analysisExposureIds, setAnalysisExposureIds] = useState<string[]>(initialExposureIds);
+  const [analysisOutcomeId, setAnalysisOutcomeId] = useState<string | undefined>(initialOutcomeId);
   const [newVariable, setNewVariable] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState(restored ? "前回の内容を復元しました" : "新しいプロジェクト");
@@ -130,8 +154,25 @@ export default function App() {
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, setViewport } = useReactFlow();
 
-  const exposure = nodes.find((n) => n.data.role === "exposure");
-  const outcome = nodes.find((n) => n.data.role === "outcome");
+  const exposureNodes = useMemo(
+    () => nodes.filter((n) => n.data.role === "exposure"),
+    [nodes],
+  );
+  const outcomeNodes = useMemo(
+    () => nodes.filter((n) => n.data.role === "outcome"),
+    [nodes],
+  );
+  const analysisExposures = useMemo(
+    () => exposureNodes.filter((n) => analysisExposureIds.includes(n.id)),
+    [exposureNodes, analysisExposureIds],
+  );
+  const analysisOutcome = outcomeNodes.find((n) => n.id === analysisOutcomeId);
+  const analysisReady =
+    Boolean(analysisOutcome) &&
+    (effectMode === "single"
+      ? analysisExposures.length === 1
+      : analysisExposures.length >= 2);
+
   const adjusted = useMemo(
     () => new Set(nodes.filter((n) => n.data.adjusted).map((n) => n.id)),
     [nodes],
@@ -146,31 +187,73 @@ export default function App() {
   );
   const cycle = useMemo(() => hasDirectedCycle(nodes, edges), [nodes, edges]);
 
+  useEffect(() => {
+    const exposureIds = new Set(exposureNodes.map((n) => n.id));
+    const valid = analysisExposureIds.filter((id) => exposureIds.has(id));
+    if (valid.length !== analysisExposureIds.length) {
+      setAnalysisExposureIds(valid);
+      return;
+    }
+    if (valid.length === 0 && exposureNodes.length > 0) {
+      setAnalysisExposureIds([exposureNodes[0].id]);
+    }
+  }, [exposureNodes, analysisExposureIds]);
+
+  useEffect(() => {
+    const outcomeIds = new Set(outcomeNodes.map((n) => n.id));
+    if (analysisOutcomeId && !outcomeIds.has(analysisOutcomeId)) {
+      setAnalysisOutcomeId(outcomeNodes[0]?.id);
+    } else if (!analysisOutcomeId && outcomeNodes.length > 0) {
+      setAnalysisOutcomeId(outcomeNodes[0].id);
+    }
+  }, [outcomeNodes, analysisOutcomeId]);
+
   const diagnostics = useMemo(() => {
-    if (!exposure || !outcome || cycle) return null;
-    const baselineBackdoor = diagnoseBackdoorPaths(
+    if (!analysisReady || !analysisOutcome || cycle) return null;
+    const exposureIds = analysisExposures.map((n) => n.id);
+    const baselineBackdoor = diagnoseBackdoorPathsForExposures(
       edges,
-      exposure.id,
-      outcome.id,
+      exposureIds,
+      analysisOutcome.id,
       selectedForAnalysis,
     );
-    const backdoor = diagnoseBackdoorPaths(edges, exposure.id, outcome.id, conditioned);
-    const minimal = minimalAdjustmentSets(
+    const backdoor = diagnoseBackdoorPathsForExposures(
+      edges,
+      exposureIds,
+      analysisOutcome.id,
+      conditioned,
+    );
+    const minimal = minimalAdjustmentSetsForExposures(
       nodes,
       edges,
-      exposure.id,
-      outcome.id,
+      exposureIds,
+      analysisOutcome.id,
       12,
       selectedForAnalysis,
     );
     return {
       baselineBackdoor,
       backdoor,
-      directed: directedPaths(edges, exposure.id, outcome.id),
+      directed: directedPathsForExposures(edges, exposureIds, analysisOutcome.id),
       minimal,
-      roles: classifyRelativeRoles(nodes, edges, exposure.id, outcome.id, minimal),
+      roles: classifyRelativeRolesForExposures(
+        nodes,
+        edges,
+        exposureIds,
+        analysisOutcome.id,
+        minimal,
+      ),
     };
-  }, [nodes, edges, conditioned, selectedForAnalysis, exposure, outcome, cycle]);
+  }, [
+    nodes,
+    edges,
+    conditioned,
+    selectedForAnalysis,
+    analysisExposures,
+    analysisOutcome,
+    analysisReady,
+    cycle,
+  ]);
 
   const labelFor = (id: string) => nodes.find((n) => n.id === id)?.data.label ?? id;
 
@@ -179,10 +262,15 @@ export default function App() {
       schemaVersion: 1,
       title,
       question,
+      analysisTarget: {
+        effectMode,
+        exposureIds: analysisExposureIds,
+        outcomeId: analysisOutcomeId,
+      },
       nodes: nodes.map((n) => ({ id: n.id, position: n.position, data: n.data })),
       edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
     }),
-    [title, question, nodes, edges],
+    [title, question, effectMode, analysisExposureIds, analysisOutcomeId, nodes, edges],
   );
 
   useEffect(() => {
@@ -276,13 +364,8 @@ export default function App() {
       : { x: 140 + stagger * 34, y: 100 + stagger * 26 };
 
     setNodes((ns) => {
-      const demoted = ns.map((n) => {
-        if (role === "exposure" && n.data.role === "exposure") return { ...n, data: { ...n.data, role: "covariate" as VariableRole } };
-        if (role === "outcome" && n.data.role === "outcome") return { ...n, data: { ...n.data, role: "covariate" as VariableRole } };
-        return n;
-      });
       return [
-        ...demoted,
+        ...ns,
         {
           id,
           type: "causal",
@@ -291,6 +374,16 @@ export default function App() {
         },
       ];
     });
+
+    if (role === "exposure") {
+      setAnalysisExposureIds((prev) => {
+        if (effectMode === "joint") return [...new Set([...prev, id])];
+        return prev.length === 0 ? [id] : prev;
+      });
+    }
+    if (role === "outcome" && !analysisOutcomeId) {
+      setAnalysisOutcomeId(id);
+    }
 
     setNewVariable("");
     setSelectedNodeId(id);
@@ -307,15 +400,31 @@ export default function App() {
   const updateSelected = (patch: Partial<CausalNodeData>) => {
     if (!selectedNodeId) return;
     setNodes((ns) =>
-      ns.map((n) => {
-        if (n.id !== selectedNodeId) {
-          if (patch.role === "exposure" && n.data.role === "exposure") return { ...n, data: { ...n.data, role: "covariate" } };
-          if (patch.role === "outcome" && n.data.role === "outcome") return { ...n, data: { ...n.data, role: "covariate" } };
-          return n;
-        }
-        return { ...n, data: { ...n.data, ...patch } };
-      }),
+      ns.map((n) =>
+        n.id === selectedNodeId
+          ? { ...n, data: { ...n.data, ...patch } }
+          : n,
+      ),
     );
+
+    if (patch.role === "exposure") {
+      setAnalysisExposureIds((prev) => {
+        if (effectMode === "joint") return [...new Set([...prev, selectedNodeId])];
+        return prev.length === 0 ? [selectedNodeId] : prev;
+      });
+    } else if (patch.role && patch.role !== "exposure") {
+      setAnalysisExposureIds((prev) => prev.filter((id) => id !== selectedNodeId));
+    }
+
+    if (patch.role === "outcome" && !analysisOutcomeId) {
+      setAnalysisOutcomeId(selectedNodeId);
+    } else if (
+      patch.role &&
+      patch.role !== "outcome" &&
+      analysisOutcomeId === selectedNodeId
+    ) {
+      setAnalysisOutcomeId(undefined);
+    }
   };
 
   const selected = nodes.find((n) => n.id === selectedNodeId) ?? null;
@@ -324,6 +433,8 @@ export default function App() {
     if (!selectedNodeId) return;
     setNodes((ns) => ns.filter((n) => n.id !== selectedNodeId));
     setEdges((es) => es.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId));
+    setAnalysisExposureIds((prev) => prev.filter((id) => id !== selectedNodeId));
+    if (analysisOutcomeId === selectedNodeId) setAnalysisOutcomeId(undefined);
     setSelectedNodeId(null);
   };
 
@@ -347,6 +458,9 @@ export default function App() {
     setQuestion({ mode: "HAPECOM", values: {} });
     setNodes([]);
     setEdges([]);
+    setEffectMode("single");
+    setAnalysisExposureIds([]);
+    setAnalysisOutcomeId(undefined);
     setNewVariable("");
     setSelectedNodeId(null);
     setSaveMessage("新しいプロジェクト");
@@ -359,6 +473,15 @@ export default function App() {
     setQuestion(p.question);
     setNodes(p.nodes.map(normalizeNode));
     setEdges(p.edges.map(normalizeEdge));
+    setEffectMode(p.analysisTarget?.effectMode ?? "single");
+    setAnalysisExposureIds(
+      p.analysisTarget?.exposureIds ??
+        p.nodes.filter((n) => n.data.role === "exposure").map((n) => n.id).slice(0, 1),
+    );
+    setAnalysisOutcomeId(
+      p.analysisTarget?.outcomeId ??
+        p.nodes.find((n) => n.data.role === "outcome")?.id,
+    );
     setSelectedNodeId(null);
   };
 
@@ -375,6 +498,15 @@ export default function App() {
       setQuestion(p.question);
       setNodes(p.nodes.map(normalizeNode));
       setEdges(p.edges.map(normalizeEdge));
+      setEffectMode(p.analysisTarget?.effectMode ?? "single");
+      setAnalysisExposureIds(
+        p.analysisTarget?.exposureIds ??
+          p.nodes.filter((n) => n.data.role === "exposure").map((n) => n.id).slice(0, 1),
+      );
+      setAnalysisOutcomeId(
+        p.analysisTarget?.outcomeId ??
+          p.nodes.find((n) => n.data.role === "outcome")?.id,
+      );
       setSelectedNodeId(null);
       setSaveMessage("ファイルを読み込みました");
     } catch (error) {
@@ -532,7 +664,90 @@ export default function App() {
         <aside className="panel right-panel">
           <div className="section-title">因果推論診断</div>
           <div className="assumption-note">
-            ここでの判定は、入力した因果仮定を前提にしたグラフ上の結果です。
+            ここでの判定は、入力した因果仮定と、下で選択した解析対象を前提にしたグラフ上の結果です。
+          </div>
+
+          <div className="analysis-target-card">
+            <div className="card-title">現在解析する因果効果</div>
+            <div className="effect-mode-tabs">
+              <button
+                className={effectMode === "single" ? "tab active" : "tab"}
+                onClick={() => {
+                  setEffectMode("single");
+                  setAnalysisExposureIds((prev) => prev.slice(0, 1));
+                }}
+              >
+                単一曝露
+              </button>
+              <button
+                className={effectMode === "joint" ? "tab active" : "tab"}
+                onClick={() => setEffectMode("joint")}
+              >
+                Joint intervention
+              </button>
+            </div>
+
+            <div className="analysis-field">
+              <span className="editor-label">
+                {effectMode === "single" ? "解析対象の曝露・介入" : "同時に介入する曝露・介入"}
+              </span>
+              {exposureNodes.length === 0 ? (
+                <div className="muted">Exposure / Treatment に指定された変数がありません。</div>
+              ) : effectMode === "single" ? (
+                <select
+                  value={analysisExposureIds[0] ?? ""}
+                  onChange={(e) => setAnalysisExposureIds(e.target.value ? [e.target.value] : [])}
+                >
+                  <option value="">選択してください</option>
+                  {exposureNodes.map((node) => (
+                    <option key={node.id} value={node.id}>{node.data.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <div className="analysis-checkboxes">
+                  {exposureNodes.map((node) => {
+                    const checked = analysisExposureIds.includes(node.id);
+                    return (
+                      <label className="analysis-check" key={node.id}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) =>
+                            setAnalysisExposureIds((prev) =>
+                              e.target.checked
+                                ? [...new Set([...prev, node.id])]
+                                : prev.filter((id) => id !== node.id),
+                            )
+                          }
+                        />
+                        {node.data.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="analysis-field">
+              <span className="editor-label">解析対象のアウトカム</span>
+              {outcomeNodes.length === 0 ? (
+                <div className="muted">Outcome に指定された変数がありません。</div>
+              ) : (
+                <select
+                  value={analysisOutcomeId ?? ""}
+                  onChange={(e) => setAnalysisOutcomeId(e.target.value || undefined)}
+                >
+                  <option value="">選択してください</option>
+                  {outcomeNodes.map((node) => (
+                    <option key={node.id} value={node.id}>{node.data.label}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {effectMode === "joint" && analysisExposureIds.length < 2 && (
+              <div className="microcopy">Joint interventionでは2つ以上の曝露・介入を選択してください。</div>
+            )}
           </div>
 
           <div className={cycle ? "diagnostic-card danger" : "diagnostic-card ok"}>
@@ -540,17 +755,24 @@ export default function App() {
             <div>{cycle ? "有向サイクルがあります。DAGになるよう矢印を見直してください。" : "有向サイクルは検出されていません。"}</div>
           </div>
 
-          {!exposure || !outcome ? (
+          {!analysisReady ? (
             <div className="diagnostic-card">
-              <div className="card-title">まず設定してください</div>
-              <div>曝露とアウトカムを1つずつ指定すると、バックドアパスと調整候補を解析します。</div>
+              <div className="card-title">解析対象を設定してください</div>
+              <div>
+                Exposure / Treatment と Outcome のノードを作成し、上の「現在解析する因果効果」で対象を選ぶと解析を開始します。
+              </div>
             </div>
           ) : !cycle && diagnostics ? (
             <>
               <div className="diagnostic-card">
                 <div className="card-title">因果経路</div>
                 <div className="metric">{diagnostics.directed.length} 本</div>
-                {diagnostics.directed.length === 0 && <div className="muted">曝露からアウトカムへの有向経路がありません。</div>}
+                <div className="microcopy">
+                  {effectMode === "joint"
+                    ? `${analysisExposures.map((n) => n.data.label).join(" ＋ ")} のjoint intervention → ${analysisOutcome?.data.label}`
+                    : `${analysisExposures[0]?.data.label} → ${analysisOutcome?.data.label}`}
+                </div>
+                {diagnostics.directed.length === 0 && <div className="muted">選択した曝露・介入からアウトカムへの有向経路がありません。</div>}
               </div>
 
               <div className={confoundingExists ? "diagnostic-card warn" : "diagnostic-card ok"}>
@@ -571,6 +793,7 @@ export default function App() {
                 <div className="path-list">
                   {diagnostics.backdoor.slice(0, 8).map((p, i) => (
                     <div key={i} className={p.active ? "path active-path" : "path blocked-path"}>
+                      {effectMode === "joint" && <strong>{labelFor(p.exposureId)}: </strong>}
                       {p.nodes.map(labelFor).join(" — ")}
                       <span>{p.active ? "　開" : "　閉"}</span>
                     </div>
