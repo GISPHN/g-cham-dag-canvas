@@ -300,21 +300,118 @@ export function diagnoseBackdoorPaths(
   );
 }
 
-function combinations<T>(items: T[], size: number): T[][] {
-  if (size === 0) return [[]];
-  if (items.length < size) return [];
-  const out: T[][] = [];
-  for (let i = 0; i <= items.length - size; i++) {
-    for (const tail of combinations(items.slice(i + 1), size - 1)) {
-      out.push([items[i], ...tail]);
-    }
-  }
-  return out;
+type UndirectedGraph = Map<string, Set<string>>;
+
+export interface AdjustmentEnumerationResult {
+  sets: string[][];
+  truncated: boolean;
+  exploredStates: number;
 }
 
-function isSubset(subset: string[], superset: string[]) {
-  const set = new Set(superset);
-  return subset.every((id) => set.has(id));
+function ancestorClosure(edges: GraphEdge[], seeds: Iterable<string>): Set<string> {
+  const ancestors = new Set<string>(seeds);
+  const stack = [...ancestors];
+
+  while (stack.length) {
+    const current = stack.pop()!;
+    for (const edge of edges) {
+      if (edge.target === current && !ancestors.has(edge.source)) {
+        ancestors.add(edge.source);
+        stack.push(edge.source);
+      }
+    }
+  }
+
+  return ancestors;
+}
+
+function moralize(
+  edges: GraphEdge[],
+  vertices: Set<string>,
+): UndirectedGraph {
+  const graph: UndirectedGraph = new Map();
+  for (const id of vertices) graph.set(id, new Set());
+
+  const addUndirected = (a: string, b: string) => {
+    if (a === b || !vertices.has(a) || !vertices.has(b)) return;
+    graph.get(a)!.add(b);
+    graph.get(b)!.add(a);
+  };
+
+  const parentsByChild = new Map<string, string[]>();
+
+  for (const edge of edges) {
+    if (!vertices.has(edge.source) || !vertices.has(edge.target)) continue;
+    addUndirected(edge.source, edge.target);
+
+    const parents = parentsByChild.get(edge.target) ?? [];
+    parents.push(edge.source);
+    parentsByChild.set(edge.target, parents);
+  }
+
+  for (const parents of parentsByChild.values()) {
+    for (let i = 0; i < parents.length; i++) {
+      for (let j = i + 1; j < parents.length; j++) {
+        addUndirected(parents[i], parents[j]);
+      }
+    }
+  }
+
+  return graph;
+}
+
+function findUndirectedPath(
+  graph: UndirectedGraph,
+  starts: Iterable<string>,
+  target: string,
+  removed: Set<string>,
+): string[] | null {
+  if (removed.has(target)) return null;
+
+  const queue: string[] = [];
+  const previous = new Map<string, string | null>();
+
+  for (const start of starts) {
+    if (removed.has(start) || !graph.has(start)) continue;
+    queue.push(start);
+    previous.set(start, null);
+  }
+
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (current === target) {
+      const path: string[] = [];
+      let cursor: string | null = current;
+      while (cursor !== null) {
+        path.push(cursor);
+        cursor = previous.get(cursor) ?? null;
+      }
+      return path.reverse();
+    }
+
+    for (const next of graph.get(current) ?? []) {
+      if (removed.has(next) || previous.has(next)) continue;
+      previous.set(next, current);
+      queue.push(next);
+    }
+  }
+
+  return null;
+}
+
+function dSeparatedInProperBackdoorGraph(
+  edges: GraphEdge[],
+  exposures: string[],
+  outcome: string,
+  conditioned: Set<string>,
+) {
+  const pbdEdges = properBackdoorGraph(edges, exposures, outcome);
+  const ancestors = ancestorClosure(
+    pbdEdges,
+    [...exposures, outcome, ...conditioned],
+  );
+  const moral = moralize(pbdEdges, ancestors);
+  return findUndirectedPath(moral, exposures, outcome, conditioned) === null;
 }
 
 export function isValidAdjustmentSetForExposures(
@@ -325,47 +422,89 @@ export function isValidAdjustmentSetForExposures(
 ) {
   const forbidden = forbiddenSetForAdjustment(edges, exposures, outcome);
   const forbiddenAdjusted = [...adjustmentIds].filter((id) => forbidden.has(id));
-  const paths = diagnoseBackdoorPathsForExposures(
-    edges,
-    exposures,
-    outcome,
-    adjustmentIds,
-  );
 
   return {
     valid:
       forbiddenAdjusted.length === 0 &&
-      paths.every((path) => !path.active),
+      dSeparatedInProperBackdoorGraph(
+        edges,
+        exposures,
+        outcome,
+        adjustmentIds,
+      ),
     forbiddenAdjusted,
-    paths,
+    paths: diagnoseBackdoorPathsForExposures(
+      edges,
+      exposures,
+      outcome,
+      adjustmentIds,
+    ),
   };
 }
 
-export function minimalAdjustmentSetsForExposures(
+function canonicalSetKey(ids: Iterable<string>) {
+  return [...ids].sort().join("\u0000");
+}
+
+function isSubset(subset: string[], superset: Set<string>) {
+  return subset.every((id) => superset.has(id));
+}
+
+function minimizeAdjustmentSet(
+  edges: GraphEdge[],
+  exposures: string[],
+  outcome: string,
+  fixedConditioned: Set<string>,
+  candidate: Set<string>,
+) {
+  const minimal = new Set(candidate);
+
+  for (const id of [...minimal]) {
+    const trial = new Set([...fixedConditioned, ...minimal]);
+    trial.delete(id);
+    if (
+      isValidAdjustmentSetForExposures(
+        edges,
+        exposures,
+        outcome,
+        trial,
+      ).valid
+    ) {
+      minimal.delete(id);
+    }
+  }
+
+  return [...minimal].sort();
+}
+
+/**
+ * Enumerate inclusion-minimal sufficient adjustment sets without imposing a
+ * candidate-count cutoff.
+ *
+ * The DAG is transformed to the proper back-door graph, restricted to the
+ * relevant ancestral graph, then moralized. Minimal adjustment is reduced to
+ * an allowed minimal vertex-separator problem. Search branches only on
+ * vertices lying on a currently open X-Y path rather than enumerating 2^n
+ * covariate subsets.
+ *
+ * maxResults limits returned results, not the number of candidate variables.
+ */
+export function enumerateMinimalAdjustmentSetsForExposures(
   nodes: GraphNode[],
   edges: GraphEdge[],
   exposures: string[],
   outcome: string,
-  limitCandidates = 12,
   fixedConditioned: Set<string> = new Set(),
-): string[][] {
-  if (exposures.length === 0) return [];
+  maxResults = 50,
+): AdjustmentEnumerationResult {
+  if (exposures.length === 0 || maxResults <= 0) {
+    return { sets: [], truncated: false, exploredStates: 0 };
+  }
 
   const forbidden = forbiddenSetForAdjustment(edges, exposures, outcome);
-  if ([...fixedConditioned].some((id) => forbidden.has(id))) return [];
-
-  const exposureSet = new Set(exposures);
-  const eligible = nodes
-    .filter(
-      (n) =>
-        !exposureSet.has(n.id) &&
-        n.id !== outcome &&
-        !forbidden.has(n.id) &&
-        n.data.measurement !== "unobserved" &&
-        !n.data.selected,
-    )
-    .map((n) => n.id)
-    .slice(0, limitCandidates);
+  if ([...fixedConditioned].some((id) => forbidden.has(id))) {
+    return { sets: [], truncated: false, exploredStates: 0 };
+  }
 
   const baseline = isValidAdjustmentSetForExposures(
     edges,
@@ -373,24 +512,129 @@ export function minimalAdjustmentSetsForExposures(
     outcome,
     fixedConditioned,
   );
-  if (baseline.valid) return [[]];
+  if (baseline.valid) {
+    return { sets: [[]], truncated: false, exploredStates: 1 };
+  }
 
-  const minimal: string[][] = [];
-  for (let size = 1; size <= eligible.length; size++) {
-    for (const candidate of combinations(eligible, size)) {
-      if (minimal.some((m) => isSubset(m, candidate))) continue;
-      const conditioned = new Set([...fixedConditioned, ...candidate]);
-      const result = isValidAdjustmentSetForExposures(
+  const pbdEdges = properBackdoorGraph(edges, exposures, outcome);
+  const relevantAncestors = ancestorClosure(
+    pbdEdges,
+    [...exposures, outcome, ...fixedConditioned],
+  );
+  const moral = moralize(pbdEdges, relevantAncestors);
+  const exposureSet = new Set(exposures);
+
+  const allowed = new Set(
+    nodes
+      .filter(
+        (node) =>
+          relevantAncestors.has(node.id) &&
+          !exposureSet.has(node.id) &&
+          node.id !== outcome &&
+          !forbidden.has(node.id) &&
+          node.data.measurement !== "unobserved" &&
+          !node.data.selected,
+      )
+      .map((node) => node.id),
+  );
+
+  const fixedRemoved = new Set(fixedConditioned);
+  const results: string[][] = [];
+  const resultKeys = new Set<string>();
+  const visited = new Set<string>();
+  let exploredStates = 0;
+  let truncated = false;
+
+  const search = (chosen: Set<string>) => {
+    if (results.length >= maxResults) {
+      truncated = true;
+      return;
+    }
+
+    const stateKey = canonicalSetKey(chosen);
+    if (visited.has(stateKey)) return;
+    visited.add(stateKey);
+    exploredStates += 1;
+
+    if (results.some((result) => isSubset(result, chosen))) return;
+
+    const removed = new Set([...fixedRemoved, ...chosen]);
+    const openPath = findUndirectedPath(
+      moral,
+      exposures,
+      outcome,
+      removed,
+    );
+
+    if (!openPath) {
+      const minimal = minimizeAdjustmentSet(
+        edges,
+        exposures,
+        outcome,
+        fixedConditioned,
+        chosen,
+      );
+      const conditioned = new Set([...fixedConditioned, ...minimal]);
+      const validity = isValidAdjustmentSetForExposures(
         edges,
         exposures,
         outcome,
         conditioned,
       );
-      if (result.valid) minimal.push(candidate);
-    }
-  }
+      if (!validity.valid) return;
 
-  return minimal.slice(0, 20);
+      const key = canonicalSetKey(minimal);
+      if (!resultKeys.has(key)) {
+        resultKeys.add(key);
+        results.push(minimal);
+      }
+      return;
+    }
+
+    const branchVertices = openPath
+      .slice(1, -1)
+      .filter((id) => allowed.has(id) && !chosen.has(id));
+
+    if (branchVertices.length === 0) return;
+
+    branchVertices.sort(
+      (a, b) => (moral.get(b)?.size ?? 0) - (moral.get(a)?.size ?? 0),
+    );
+
+    for (const id of branchVertices) {
+      const next = new Set(chosen);
+      next.add(id);
+      search(next);
+      if (results.length >= maxResults) {
+        truncated = true;
+        return;
+      }
+    }
+  };
+
+  search(new Set());
+
+  results.sort((a, b) => a.length - b.length || a.join().localeCompare(b.join()));
+
+  return { sets: results, truncated, exploredStates };
+}
+
+export function minimalAdjustmentSetsForExposures(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  exposures: string[],
+  outcome: string,
+  maxResults = 50,
+  fixedConditioned: Set<string> = new Set(),
+): string[][] {
+  return enumerateMinimalAdjustmentSetsForExposures(
+    nodes,
+    edges,
+    exposures,
+    outcome,
+    fixedConditioned,
+    maxResults,
+  ).sets;
 }
 
 export function minimalAdjustmentSets(
@@ -398,7 +642,7 @@ export function minimalAdjustmentSets(
   edges: GraphEdge[],
   exposure: string,
   outcome: string,
-  limitCandidates = 12,
+  maxResults = 50,
   fixedConditioned: Set<string> = new Set(),
 ): string[][] {
   return minimalAdjustmentSetsForExposures(
@@ -406,7 +650,7 @@ export function minimalAdjustmentSets(
     edges,
     [exposure],
     outcome,
-    limitCandidates,
+    maxResults,
     fixedConditioned,
   );
 }
