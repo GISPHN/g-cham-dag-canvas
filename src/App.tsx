@@ -27,9 +27,9 @@ import {
   classifyRelativeRolesForExposures,
   diagnoseBackdoorPathsForExposures,
   directedPathsForExposures,
+  enumerateMinimalAdjustmentSetsForExposures,
   hasDirectedCycle,
   isValidAdjustmentSetForExposures,
-  minimalAdjustmentSetsForExposures,
 } from "./lib/graph";
 import { downloadProject, loadProject, readProjectFile, saveProject } from "./lib/storage";
 
@@ -224,14 +224,15 @@ export default function App() {
       analysisOutcome.id,
       conditioned,
     );
-    const minimal = minimalAdjustmentSetsForExposures(
+    const enumeration = enumerateMinimalAdjustmentSetsForExposures(
       nodes,
       edges,
       exposureIds,
       analysisOutcome.id,
-      12,
       selectedForAnalysis,
+      50,
     );
+    const minimal = enumeration.sets;
     const adjustmentValidity = isValidAdjustmentSetForExposures(
       edges,
       exposureIds,
@@ -243,6 +244,7 @@ export default function App() {
       backdoor,
       directed: directedPathsForExposures(edges, exposureIds, analysisOutcome.id),
       minimal,
+      adjustmentEnumeration: enumeration,
       adjustmentValidity,
       roles: classifyRelativeRolesForExposures(
         nodes,
@@ -862,8 +864,13 @@ export default function App() {
                   ))
                 )}
                 <div className="microcopy">
-                  generalized adjustment criterion に基づく最小十分調整集合です。クリックすると現在の調整セットとして反映します。
+                  generalized adjustment criterion に基づき、グラフ構造から最小十分調整集合を列挙しています。候補変数数に固定上限はありません。
                 </div>
+                {diagnostics.adjustmentEnumeration.truncated && (
+                  <div className="adjustment-status warn-text">
+                    調整集合が多数あるため、最初の50件を表示しています。
+                  </div>
+                )}
               </div>
 
               {forbiddenAdjusted.length > 0 && (
