@@ -738,3 +738,10 @@ select:focus {
   height: 16px;
   margin: 0;
 }
+
+
+.role-pill-danger {
+  background: #fff0f0;
+  border-color: #efc1c1;
+  color: #9d2f2f;
+}
