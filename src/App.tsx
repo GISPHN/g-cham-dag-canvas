@@ -412,7 +412,7 @@ export default function App() {
         if (effectMode === "joint") return [...new Set([...prev, selectedNodeId])];
         return prev.length === 0 ? [selectedNodeId] : prev;
       });
-    } else if (patch.role && patch.role !== "exposure") {
+    } else if (patch.role) {
       setAnalysisExposureIds((prev) => prev.filter((id) => id !== selectedNodeId));
     }
 
@@ -420,7 +420,6 @@ export default function App() {
       setAnalysisOutcomeId(selectedNodeId);
     } else if (
       patch.role &&
-      patch.role !== "outcome" &&
       analysisOutcomeId === selectedNodeId
     ) {
       setAnalysisOutcomeId(undefined);
