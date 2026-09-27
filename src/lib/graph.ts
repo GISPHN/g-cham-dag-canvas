@@ -11,6 +11,15 @@ export interface PathDiagnostic {
   active: boolean;
 }
 
+export interface ProperCausalPath {
+  exposureId: string;
+  nodes: string[];
+}
+
+function edgeKey(source: string, target: string) {
+  return `${source}→${target}`;
+}
+
 function edgeExists(edges: GraphEdge[], source: string, target: string) {
   return edges.some((e) => e.source === source && e.target === target);
 }
@@ -82,17 +91,64 @@ export function directedPaths(
   return results;
 }
 
+function properDirectedPathsFromExposure(
+  edges: GraphEdge[],
+  exposure: string,
+  exposureSet: Set<string>,
+  outcome: string,
+  maxPaths = 200,
+): string[][] {
+  const results: string[][] = [];
+
+  const walk = (current: string, path: string[]) => {
+    if (results.length >= maxPaths) return;
+    if (current === outcome) {
+      results.push(path);
+      return;
+    }
+
+    for (const e of edges) {
+      if (e.source !== current || path.includes(e.target)) continue;
+      if (e.target !== outcome && exposureSet.has(e.target)) continue;
+      walk(e.target, [...path, e.target]);
+    }
+  };
+
+  walk(exposure, [exposure]);
+  return results;
+}
+
+export function properDirectedPathsForExposures(
+  edges: GraphEdge[],
+  exposures: string[],
+  outcome: string,
+  maxPathsPerExposure = 200,
+): ProperCausalPath[] {
+  const exposureSet = new Set(exposures);
+  return exposures.flatMap((exposureId) =>
+    properDirectedPathsFromExposure(
+      edges,
+      exposureId,
+      exposureSet,
+      outcome,
+      maxPathsPerExposure,
+    ).map((nodes) => ({ exposureId, nodes })),
+  );
+}
+
+// Backwards-compatible alias. For a treatment set, causal-path counts should use
+// proper causal paths: no selected exposure may appear internally on the path.
 export function directedPathsForExposures(
   edges: GraphEdge[],
   exposures: string[],
   outcome: string,
-  maxPathsPerExposure = 100,
+  maxPathsPerExposure = 200,
 ) {
-  return exposures.flatMap((exposureId) =>
-    directedPaths(edges, exposureId, outcome, maxPathsPerExposure).map((nodes) => ({
-      exposureId,
-      nodes,
-    })),
+  return properDirectedPathsForExposures(
+    edges,
+    exposures,
+    outcome,
+    maxPathsPerExposure,
   );
 }
 
@@ -100,7 +156,7 @@ function allSimpleUndirectedPaths(
   edges: GraphEdge[],
   source: string,
   target: string,
-  maxPaths = 500,
+  maxPaths = 1000,
 ): string[][] {
   const results: string[][] = [];
   const walk = (current: string, path: string[]) => {
@@ -117,6 +173,10 @@ function allSimpleUndirectedPaths(
   return results;
 }
 
+function isProperPath(path: string[], exposureSet: Set<string>) {
+  return path.slice(1).every((id) => !exposureSet.has(id));
+}
+
 function isCollider(edges: GraphEdge[], left: string, center: string, right: string) {
   return edgeExists(edges, left, center) && edgeExists(edges, right, center);
 }
@@ -131,8 +191,79 @@ function colliderHasConditionedDescendant(
   return [...conditioned].some((id) => ds.has(id));
 }
 
-function backdoorGraph(edges: GraphEdge[], exposures: Set<string>) {
-  return edges.filter((e) => !exposures.has(e.source));
+function pathDiagnostic(
+  edges: GraphEdge[],
+  exposureId: string,
+  path: string[],
+  conditionedIds: Set<string>,
+): PathDiagnostic {
+  const colliderIds: string[] = [];
+  let active = true;
+
+  for (let i = 1; i < path.length - 1; i++) {
+    const left = path[i - 1];
+    const center = path[i];
+    const right = path[i + 1];
+    const collider = isCollider(edges, left, center, right);
+
+    if (collider) {
+      colliderIds.push(center);
+      if (!colliderHasConditionedDescendant(edges, center, conditionedIds)) {
+        active = false;
+      }
+    } else if (conditionedIds.has(center)) {
+      active = false;
+    }
+  }
+
+  return { exposureId, nodes: path, colliderIds, active };
+}
+
+export function properBackdoorGraph(
+  edges: GraphEdge[],
+  exposures: string[],
+  outcome: string,
+): GraphEdge[] {
+  const causalPaths = properDirectedPathsForExposures(edges, exposures, outcome);
+  const firstCausalEdges = new Set<string>();
+
+  for (const path of causalPaths) {
+    if (path.nodes.length >= 2) {
+      firstCausalEdges.add(edgeKey(path.nodes[0], path.nodes[1]));
+    }
+  }
+
+  return edges.filter(
+    (e) => !firstCausalEdges.has(edgeKey(e.source, e.target)),
+  );
+}
+
+export function causalNodesForAdjustment(
+  edges: GraphEdge[],
+  exposures: string[],
+  outcome: string,
+): Set<string> {
+  const causalNodes = new Set<string>();
+  for (const path of properDirectedPathsForExposures(edges, exposures, outcome)) {
+    path.nodes.slice(1).forEach((id) => causalNodes.add(id));
+  }
+  return causalNodes;
+}
+
+export function forbiddenSetForAdjustment(
+  edges: GraphEdge[],
+  exposures: string[],
+  outcome: string,
+): Set<string> {
+  const forbidden = new Set<string>(exposures);
+  const causalNodes = causalNodesForAdjustment(edges, exposures, outcome);
+
+  for (const node of causalNodes) {
+    forbidden.add(node);
+    descendants(edges, node).forEach((id) => forbidden.add(id));
+  }
+
+  return forbidden;
 }
 
 export function diagnoseBackdoorPathsForExposures(
@@ -144,31 +275,14 @@ export function diagnoseBackdoorPathsForExposures(
   if (exposures.length === 0) return [];
 
   const exposureSet = new Set(exposures);
-  const bdEdges = backdoorGraph(edges, exposureSet);
+  const pbdEdges = properBackdoorGraph(edges, exposures, outcome);
 
   return exposures.flatMap((exposureId) =>
-    allSimpleUndirectedPaths(bdEdges, exposureId, outcome).map((path) => {
-      const colliderIds: string[] = [];
-      let active = true;
-
-      for (let i = 1; i < path.length - 1; i++) {
-        const left = path[i - 1];
-        const center = path[i];
-        const right = path[i + 1];
-        const collider = isCollider(bdEdges, left, center, right);
-
-        if (collider) {
-          colliderIds.push(center);
-          if (!colliderHasConditionedDescendant(bdEdges, center, conditionedIds)) {
-            active = false;
-          }
-        } else if (conditionedIds.has(center)) {
-          active = false;
-        }
-      }
-
-      return { exposureId, nodes: path, colliderIds, active };
-    }),
+    allSimpleUndirectedPaths(pbdEdges, exposureId, outcome)
+      .filter((path) => isProperPath(path, exposureSet))
+      .map((path) =>
+        pathDiagnostic(pbdEdges, exposureId, path, conditionedIds),
+      ),
   );
 }
 
@@ -203,6 +317,30 @@ function isSubset(subset: string[], superset: string[]) {
   return subset.every((id) => set.has(id));
 }
 
+export function isValidAdjustmentSetForExposures(
+  edges: GraphEdge[],
+  exposures: string[],
+  outcome: string,
+  adjustmentIds: Set<string>,
+) {
+  const forbidden = forbiddenSetForAdjustment(edges, exposures, outcome);
+  const forbiddenAdjusted = [...adjustmentIds].filter((id) => forbidden.has(id));
+  const paths = diagnoseBackdoorPathsForExposures(
+    edges,
+    exposures,
+    outcome,
+    adjustmentIds,
+  );
+
+  return {
+    valid:
+      forbiddenAdjusted.length === 0 &&
+      paths.every((path) => !path.active),
+    forbiddenAdjusted,
+    paths,
+  };
+}
+
 export function minimalAdjustmentSetsForExposures(
   nodes: GraphNode[],
   edges: GraphEdge[],
@@ -213,46 +351,45 @@ export function minimalAdjustmentSetsForExposures(
 ): string[][] {
   if (exposures.length === 0) return [];
 
-  const exposureSet = new Set(exposures);
-  const exposureDescendants = new Set<string>();
-  for (const exposure of exposures) {
-    descendants(edges, exposure).forEach((id) => exposureDescendants.add(id));
-  }
+  const forbidden = forbiddenSetForAdjustment(edges, exposures, outcome);
+  if ([...fixedConditioned].some((id) => forbidden.has(id))) return [];
 
+  const exposureSet = new Set(exposures);
   const eligible = nodes
     .filter(
       (n) =>
         !exposureSet.has(n.id) &&
         n.id !== outcome &&
-        !exposureDescendants.has(n.id) &&
+        !forbidden.has(n.id) &&
         n.data.measurement !== "unobserved" &&
         !n.data.selected,
     )
     .map((n) => n.id)
     .slice(0, limitCandidates);
 
-  const baseline = diagnoseBackdoorPathsForExposures(
+  const baseline = isValidAdjustmentSetForExposures(
     edges,
     exposures,
     outcome,
     fixedConditioned,
   );
-  if (baseline.every((p) => !p.active)) return [[]];
+  if (baseline.valid) return [[]];
 
   const minimal: string[][] = [];
   for (let size = 1; size <= eligible.length; size++) {
     for (const candidate of combinations(eligible, size)) {
       if (minimal.some((m) => isSubset(m, candidate))) continue;
       const conditioned = new Set([...fixedConditioned, ...candidate]);
-      const paths = diagnoseBackdoorPathsForExposures(
+      const result = isValidAdjustmentSetForExposures(
         edges,
         exposures,
         outcome,
         conditioned,
       );
-      if (paths.every((p) => !p.active)) minimal.push(candidate);
+      if (result.valid) minimal.push(candidate);
     }
   }
+
   return minimal.slice(0, 20);
 }
 
@@ -281,23 +418,27 @@ export function classifyRelativeRolesForExposures(
   outcome: string,
   minimalSets: string[][] = [],
 ) {
-  const exposureSet = new Set(exposures);
-  const directed = directedPathsForExposures(edges, exposures, outcome);
+  const causalPaths = properDirectedPathsForExposures(edges, exposures, outcome);
   const mediators = new Set<string>();
-  for (const path of directed) {
-    path.nodes
-      .slice(1, -1)
-      .filter((id) => !exposureSet.has(id))
-      .forEach((id) => mediators.add(id));
+  for (const path of causalPaths) {
+    path.nodes.slice(1, -1).forEach((id) => mediators.add(id));
   }
 
+  const pbdEdges = properBackdoorGraph(edges, exposures, outcome);
+  const exposureSet = new Set(exposures);
   const colliders = new Set<string>();
-  const colliderPaths: Array<{ nodeId: string; path: string[]; exposureId: string }> = [];
+  const colliderPaths: Array<{
+    nodeId: string;
+    path: string[];
+    exposureId: string;
+  }> = [];
+
   for (const exposureId of exposures) {
-    const allPaths = allSimpleUndirectedPaths(edges, exposureId, outcome);
-    for (const path of allPaths) {
+    const paths = allSimpleUndirectedPaths(pbdEdges, exposureId, outcome)
+      .filter((path) => isProperPath(path, exposureSet));
+    for (const path of paths) {
       for (let i = 1; i < path.length - 1; i++) {
-        if (isCollider(edges, path[i - 1], path[i], path[i + 1])) {
+        if (isCollider(pbdEdges, path[i - 1], path[i], path[i + 1])) {
           colliders.add(path[i]);
           colliderPaths.push({ nodeId: path[i], path, exposureId });
         }
@@ -305,18 +446,17 @@ export function classifyRelativeRolesForExposures(
     }
   }
 
-  const confounders = new Set<string>();
-  if (!(minimalSets.length === 1 && minimalSets[0].length === 0)) {
-    for (const set of minimalSets) {
-      set.forEach((id) => confounders.add(id));
-    }
+  const adjustmentVariables = new Set<string>();
+  for (const set of minimalSets) {
+    set.forEach((id) => adjustmentVariables.add(id));
   }
 
   return {
     mediators: [...mediators],
     colliders: [...colliders],
     colliderPaths,
-    confounders: [...confounders],
+    adjustmentVariables: [...adjustmentVariables],
+    forbidden: [...forbiddenSetForAdjustment(edges, exposures, outcome)],
     nodeMap: new Map(nodes.map((n) => [n.id, n])),
   };
 }
