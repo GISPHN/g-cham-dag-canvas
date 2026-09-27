@@ -5,6 +5,7 @@ type GraphNode = Node<CausalNodeData>;
 type GraphEdge = Edge;
 
 export interface PathDiagnostic {
+  exposureId: string;
   nodes: string[];
   colliderIds: string[];
   active: boolean;
@@ -81,6 +82,20 @@ export function directedPaths(
   return results;
 }
 
+export function directedPathsForExposures(
+  edges: GraphEdge[],
+  exposures: string[],
+  outcome: string,
+  maxPathsPerExposure = 100,
+) {
+  return exposures.flatMap((exposureId) =>
+    directedPaths(edges, exposureId, outcome, maxPathsPerExposure).map((nodes) => ({
+      exposureId,
+      nodes,
+    })),
+  );
+}
+
 function allSimpleUndirectedPaths(
   edges: GraphEdge[],
   source: string,
@@ -116,18 +131,23 @@ function colliderHasConditionedDescendant(
   return [...conditioned].some((id) => ds.has(id));
 }
 
-export function diagnoseBackdoorPaths(
+function backdoorGraph(edges: GraphEdge[], exposures: Set<string>) {
+  return edges.filter((e) => !exposures.has(e.source));
+}
+
+export function diagnoseBackdoorPathsForExposures(
   edges: GraphEdge[],
-  exposure: string,
+  exposures: string[],
   outcome: string,
   conditionedIds: Set<string>,
 ): PathDiagnostic[] {
-  return allSimpleUndirectedPaths(edges, exposure, outcome)
-    .filter((path) => {
-      if (path.length < 2) return false;
-      return edgeExists(edges, path[1], exposure);
-    })
-    .map((path) => {
+  if (exposures.length === 0) return [];
+
+  const exposureSet = new Set(exposures);
+  const bdEdges = backdoorGraph(edges, exposureSet);
+
+  return exposures.flatMap((exposureId) =>
+    allSimpleUndirectedPaths(bdEdges, exposureId, outcome).map((path) => {
       const colliderIds: string[] = [];
       let active = true;
 
@@ -135,11 +155,11 @@ export function diagnoseBackdoorPaths(
         const left = path[i - 1];
         const center = path[i];
         const right = path[i + 1];
-        const collider = isCollider(edges, left, center, right);
+        const collider = isCollider(bdEdges, left, center, right);
 
         if (collider) {
           colliderIds.push(center);
-          if (!colliderHasConditionedDescendant(edges, center, conditionedIds)) {
+          if (!colliderHasConditionedDescendant(bdEdges, center, conditionedIds)) {
             active = false;
           }
         } else if (conditionedIds.has(center)) {
@@ -147,8 +167,23 @@ export function diagnoseBackdoorPaths(
         }
       }
 
-      return { nodes: path, colliderIds, active };
-    });
+      return { exposureId, nodes: path, colliderIds, active };
+    }),
+  );
+}
+
+export function diagnoseBackdoorPaths(
+  edges: GraphEdge[],
+  exposure: string,
+  outcome: string,
+  conditionedIds: Set<string>,
+): PathDiagnostic[] {
+  return diagnoseBackdoorPathsForExposures(
+    edges,
+    [exposure],
+    outcome,
+    conditionedIds,
+  );
 }
 
 function combinations<T>(items: T[], size: number): T[][] {
@@ -168,19 +203,26 @@ function isSubset(subset: string[], superset: string[]) {
   return subset.every((id) => set.has(id));
 }
 
-export function minimalAdjustmentSets(
+export function minimalAdjustmentSetsForExposures(
   nodes: GraphNode[],
   edges: GraphEdge[],
-  exposure: string,
+  exposures: string[],
   outcome: string,
   limitCandidates = 12,
   fixedConditioned: Set<string> = new Set(),
 ): string[][] {
-  const exposureDescendants = descendants(edges, exposure);
+  if (exposures.length === 0) return [];
+
+  const exposureSet = new Set(exposures);
+  const exposureDescendants = new Set<string>();
+  for (const exposure of exposures) {
+    descendants(edges, exposure).forEach((id) => exposureDescendants.add(id));
+  }
+
   const eligible = nodes
     .filter(
       (n) =>
-        n.id !== exposure &&
+        !exposureSet.has(n.id) &&
         n.id !== outcome &&
         !exposureDescendants.has(n.id) &&
         n.data.measurement !== "unobserved" &&
@@ -189,7 +231,12 @@ export function minimalAdjustmentSets(
     .map((n) => n.id)
     .slice(0, limitCandidates);
 
-  const baseline = diagnoseBackdoorPaths(edges, exposure, outcome, fixedConditioned);
+  const baseline = diagnoseBackdoorPathsForExposures(
+    edges,
+    exposures,
+    outcome,
+    fixedConditioned,
+  );
   if (baseline.every((p) => !p.active)) return [[]];
 
   const minimal: string[][] = [];
@@ -197,34 +244,63 @@ export function minimalAdjustmentSets(
     for (const candidate of combinations(eligible, size)) {
       if (minimal.some((m) => isSubset(m, candidate))) continue;
       const conditioned = new Set([...fixedConditioned, ...candidate]);
-      const paths = diagnoseBackdoorPaths(edges, exposure, outcome, conditioned);
+      const paths = diagnoseBackdoorPathsForExposures(
+        edges,
+        exposures,
+        outcome,
+        conditioned,
+      );
       if (paths.every((p) => !p.active)) minimal.push(candidate);
     }
   }
   return minimal.slice(0, 20);
 }
 
-export function classifyRelativeRoles(
+export function minimalAdjustmentSets(
   nodes: GraphNode[],
   edges: GraphEdge[],
   exposure: string,
   outcome: string,
+  limitCandidates = 12,
+  fixedConditioned: Set<string> = new Set(),
+): string[][] {
+  return minimalAdjustmentSetsForExposures(
+    nodes,
+    edges,
+    [exposure],
+    outcome,
+    limitCandidates,
+    fixedConditioned,
+  );
+}
+
+export function classifyRelativeRolesForExposures(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  exposures: string[],
+  outcome: string,
   minimalSets: string[][] = [],
 ) {
-  const directed = directedPaths(edges, exposure, outcome);
+  const exposureSet = new Set(exposures);
+  const directed = directedPathsForExposures(edges, exposures, outcome);
   const mediators = new Set<string>();
   for (const path of directed) {
-    path.slice(1, -1).forEach((id) => mediators.add(id));
+    path.nodes
+      .slice(1, -1)
+      .filter((id) => !exposureSet.has(id))
+      .forEach((id) => mediators.add(id));
   }
 
-  const allPaths = allSimpleUndirectedPaths(edges, exposure, outcome);
   const colliders = new Set<string>();
-  const colliderPaths: Array<{ nodeId: string; path: string[] }> = [];
-  for (const path of allPaths) {
-    for (let i = 1; i < path.length - 1; i++) {
-      if (isCollider(edges, path[i - 1], path[i], path[i + 1])) {
-        colliders.add(path[i]);
-        colliderPaths.push({ nodeId: path[i], path });
+  const colliderPaths: Array<{ nodeId: string; path: string[]; exposureId: string }> = [];
+  for (const exposureId of exposures) {
+    const allPaths = allSimpleUndirectedPaths(edges, exposureId, outcome);
+    for (const path of allPaths) {
+      for (let i = 1; i < path.length - 1; i++) {
+        if (isCollider(edges, path[i - 1], path[i], path[i + 1])) {
+          colliders.add(path[i]);
+          colliderPaths.push({ nodeId: path[i], path, exposureId });
+        }
       }
     }
   }
@@ -243,4 +319,20 @@ export function classifyRelativeRoles(
     confounders: [...confounders],
     nodeMap: new Map(nodes.map((n) => [n.id, n])),
   };
+}
+
+export function classifyRelativeRoles(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  exposure: string,
+  outcome: string,
+  minimalSets: string[][] = [],
+) {
+  return classifyRelativeRolesForExposures(
+    nodes,
+    edges,
+    [exposure],
+    outcome,
+    minimalSets,
+  );
 }
