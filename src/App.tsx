@@ -73,6 +73,9 @@ const measurementLabels = {
 
 const nodeTypes = { causal: CausalNode };
 
+const CYCLE_NOTICE =
+  "矢印を追加しました。有向サイクルを形成する矢印を青緑色の点線で示しています。DAGとして解析するには、サイクルがなくなるよう矢印を見直してください。";
+
 function starterProject(): ProjectState {
   return {
     schemaVersion: 1,
@@ -191,6 +194,12 @@ export default function App() {
   );
   const cycleEdgeIds = useMemo(() => directedCycleEdgeIds(edges), [edges]);
   const cycle = cycleEdgeIds.size > 0;
+
+  useEffect(() => {
+    if (!cycle) {
+      setGraphNotice((current) => (current === CYCLE_NOTICE ? null : current));
+    }
+  }, [cycle]);
 
   useEffect(() => {
     const exposureIds = new Set(exposureNodes.map((n) => n.id));
@@ -453,9 +462,7 @@ export default function App() {
     const nextCycleEdges = directedCycleEdgeIds(nextEdges);
 
     setGraphNotice(
-      nextCycleEdges.has(candidate.id)
-        ? "矢印を追加しました。有向サイクルを形成する矢印を青緑色の点線で示しています。DAGとして解析するには、サイクルがなくなるよう矢印を見直してください。"
-        : null,
+      nextCycleEdges.has(candidate.id) ? CYCLE_NOTICE : null,
     );
     setEdges((eds) => addEdge(candidate, eds));
   };
