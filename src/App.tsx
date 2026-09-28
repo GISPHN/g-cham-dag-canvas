@@ -285,7 +285,13 @@ export default function App() {
         outcomeId: analysisOutcomeId,
       },
       nodes: nodes.map((n) => ({ id: n.id, position: n.position, data: n.data })),
-      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+      edges: edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle ?? null,
+        targetHandle: e.targetHandle ?? null,
+      })),
     }),
     [title, question, effectMode, analysisExposureIds, analysisOutcomeId, nodes, edges],
   );
