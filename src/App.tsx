@@ -934,14 +934,6 @@ export default function App() {
                         : "現在の調整では、グラフ分離基準上、未遮断の非因果経路が残っています。"}
                   </div>
                 )}
-                <div className="microcopy">
-                  調整の十分性は generalized adjustment criterion に基づくグラフ分離で判定します。元の因果矢印は黒い実線のまま保持し、赤い破線と灰色の点線は経路理解のための説明用オーバーレイです。
-                </div>
-                {diagnostics.backdoor.length > 0 && (
-                  <div className="microcopy">
-                    以下の経路一覧は説明用です。最終判定は経路列挙件数ではなくグラフ分離結果を使用します。
-                  </div>
-                )}
                 <div className="path-list">
                   {diagnostics.backdoor.slice(0, 8).map((p, i) => (
                     <div key={i} className={p.active ? "path active-path" : "path blocked-path"}>
@@ -964,9 +956,6 @@ export default function App() {
                     </button>
                   ))
                 )}
-                <div className="microcopy">
-                  generalized adjustment criterion に基づき、グラフ構造から最小十分調整集合を列挙しています。候補変数数に固定上限はありません。
-                </div>
                 {diagnostics.adjustmentEnumeration.truncated && (
                   <div className="adjustment-status warn-text">
                     調整集合が多数あるため、最初の50件を表示しています。
