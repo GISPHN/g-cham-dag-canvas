@@ -5,6 +5,7 @@ import {
   diagnoseBackdoorPathsForExposures,
   enumerateMinimalAdjustmentSetsForExposures,
   forbiddenSetForAdjustment,
+  isValidAdjustmentSetForExposures,
   minimalAdjustmentSetsForExposures,
   properDirectedPathsForExposures,
 } from "./graph";
@@ -145,6 +146,85 @@ describe("generalized adjustment criterion", () => {
     expect(result.sets).toHaveLength(1);
     expect(result.sets[0]).toEqual([...confounders].sort());
     expect(result.sets[0]).toHaveLength(13);
+  });
+
+  it("validates the Fujidera joint-exposure regression graph and enumerates its minimal sets", () => {
+    const nodes = [
+      node("participantRatio"),
+      node("content"),
+      node("schedule"),
+      node("method"),
+      node("address"),
+      node("employment"),
+      node("parity"),
+      node("video"),
+      node("class"),
+      node("economic", "exposure"),
+      node("married", "exposure"),
+      node("Y", "outcome"),
+      node("homecoming", "exposure"),
+      node("age"),
+      node("support"),
+      node("followup", "exposure"),
+    ];
+    const edges = [
+      edge("class", "Y"),
+      edge("video", "Y"),
+      edge("method", "Y"),
+      edge("economic", "followup"),
+      edge("married", "followup"),
+      edge("married", "Y"),
+      edge("economic", "married"),
+      edge("homecoming", "support"),
+      edge("address", "homecoming"),
+      edge("address", "economic"),
+      edge("age", "followup"),
+      edge("parity", "age"),
+      edge("content", "parity"),
+      edge("content", "video"),
+      edge("content", "class"),
+      edge("schedule", "employment"),
+      edge("schedule", "address"),
+      edge("participantRatio", "schedule"),
+      edge("content", "method"),
+      edge("schedule", "content"),
+      edge("support", "Y"),
+      edge("parity", "video"),
+      edge("employment", "Y"),
+    ];
+    const exposures = ["married", "economic", "homecoming", "followup"];
+
+    expect(
+      properDirectedPathsForExposures(edges, exposures, "Y").map((p) => p.nodes),
+    ).toEqual([
+      ["married", "Y"],
+      ["homecoming", "support", "Y"],
+    ]);
+
+    expect(
+      minimalAdjustmentSetsForExposures(nodes, edges, exposures, "Y"),
+    ).toEqual([
+      ["address", "age"],
+      ["address", "parity"],
+      ["age", "schedule"],
+      ["parity", "schedule"],
+      ["address", "content", "video"],
+      ["age", "content", "employment"],
+      ["content", "employment", "parity"],
+      ["content", "employment", "video"],
+      ["content", "schedule", "video"],
+      ["class", "employment", "method", "video"],
+      ["class", "method", "schedule", "video"],
+    ]);
+
+    const adjusted = new Set(["content", "schedule", "parity"]);
+    const validity = isValidAdjustmentSetForExposures(
+      edges,
+      exposures,
+      "Y",
+      adjusted,
+    );
+    expect(validity.valid).toBe(true);
   });
 
 });
