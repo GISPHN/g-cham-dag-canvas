@@ -47,5 +47,7 @@ export interface ProjectState {
     id: string;
     source: string;
     target: string;
+    sourceHandle?: string | null;
+    targetHandle?: string | null;
   }>;
 }
