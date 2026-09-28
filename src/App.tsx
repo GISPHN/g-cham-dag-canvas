@@ -338,6 +338,26 @@ export default function App() {
       }
     });
 
+    const selectedCycleUnderlays: Edge[] = edges
+      .filter((edge) => Boolean(edge.selected) && cycleEdgeIds.has(edge.id))
+      .map((edge) => ({
+        ...edge,
+        id: "overlay-selected-cycle-" + edge.id,
+        style: {
+          stroke: "#5b3fd3",
+          strokeWidth: 9,
+          opacity: 0.55,
+          pointerEvents: "none",
+        },
+        markerEnd: undefined,
+        animated: false,
+        selectable: false,
+        focusable: false,
+        deletable: false,
+        interactionWidth: 0,
+        zIndex: 25,
+      }));
+
     const baseEdges = edges.map((edge) => {
       const selected = Boolean(edge.selected);
       const inDirectedCycle = cycleEdgeIds.has(edge.id);
@@ -353,11 +373,14 @@ export default function App() {
           stroke,
           strokeWidth: inDirectedCycle ? 4 : selected ? 4 : 2,
           strokeDasharray: inDirectedCycle ? "3 7" : undefined,
-          filter: selected
-            ? "drop-shadow(0 0 4px rgba(91, 63, 211, 0.45))"
-            : inDirectedCycle
-              ? "drop-shadow(0 0 3px rgba(15, 118, 110, 0.35))"
-              : undefined,
+          filter:
+            inDirectedCycle && selected
+              ? "drop-shadow(0 0 5px rgba(91, 63, 211, 0.8))"
+              : selected
+                ? "drop-shadow(0 0 4px rgba(91, 63, 211, 0.45))"
+                : inDirectedCycle
+                  ? "drop-shadow(0 0 3px rgba(15, 118, 110, 0.35))"
+                  : undefined,
         },
         markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
         animated: false,
@@ -407,7 +430,7 @@ export default function App() {
       }
     }
 
-    return [...baseEdges, ...overlays];
+    return [...selectedCycleUnderlays, ...baseEdges, ...overlays];
   }, [edges, diagnostics, conditioned, cycleEdgeIds]);
 
   const onConnect = (connection: Connection) => {
