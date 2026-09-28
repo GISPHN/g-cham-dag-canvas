@@ -29,6 +29,7 @@ import type {
 import {
   classifyRelativeRolesForExposures,
   diagnoseBackdoorPathsForExposures,
+  directedCycleEdgeIds,
   directedPathsForExposures,
   enumerateMinimalAdjustmentSetsForExposures,
   hasDirectedCycle,
@@ -189,7 +190,8 @@ export default function App() {
     () => new Set([...adjusted, ...selectedForAnalysis]),
     [adjusted, selectedForAnalysis],
   );
-  const cycle = useMemo(() => hasDirectedCycle(nodes, edges), [nodes, edges]);
+  const cycleEdgeIds = useMemo(() => directedCycleEdgeIds(edges), [edges]);
+  const cycle = cycleEdgeIds.size > 0;
 
   useEffect(() => {
     const exposureIds = new Set(exposureNodes.map((n) => n.id));
@@ -339,17 +341,28 @@ export default function App() {
 
     const baseEdges = edges.map((edge) => {
       const selected = Boolean(edge.selected);
-      const stroke = selected ? "#5b3fd3" : "#4c586c";
+      const inDirectedCycle = cycleEdgeIds.has(edge.id);
+      const stroke = inDirectedCycle
+        ? "#0f766e"
+        : selected
+          ? "#5b3fd3"
+          : "#4c586c";
+
       return {
         ...edge,
         style: {
           stroke,
-          strokeWidth: selected ? 4 : 2,
-          filter: selected ? "drop-shadow(0 0 4px rgba(91, 63, 211, 0.45))" : undefined,
+          strokeWidth: inDirectedCycle ? 4 : selected ? 4 : 2,
+          strokeDasharray: inDirectedCycle ? "3 7" : undefined,
+          filter: selected
+            ? "drop-shadow(0 0 4px rgba(91, 63, 211, 0.45))"
+            : inDirectedCycle
+              ? "drop-shadow(0 0 3px rgba(15, 118, 110, 0.35))"
+              : undefined,
         },
         markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
         animated: false,
-        zIndex: selected ? 20 : 0,
+        zIndex: inDirectedCycle ? 30 : selected ? 20 : 0,
       };
     });
 
@@ -396,7 +409,7 @@ export default function App() {
     }
 
     return [...baseEdges, ...overlays];
-  }, [edges, diagnostics, conditioned]);
+  }, [edges, diagnostics, conditioned, cycleEdgeIds]);
 
   const onConnect = (connection: Connection) => {
     if (!connection.source || !connection.target || connection.source === connection.target) return;
@@ -414,12 +427,14 @@ export default function App() {
       markerEnd: { type: MarkerType.ArrowClosed },
     };
 
-    if (hasDirectedCycle(nodes, [...edges, candidate])) {
-      setGraphNotice("この矢印を追加すると有向サイクルが生じるため、DAGにはできません。");
-      return;
-    }
+    const nextEdges = [...edges, candidate];
+    const nextCycleEdges = directedCycleEdgeIds(nextEdges);
 
-    setGraphNotice(null);
+    setGraphNotice(
+      nextCycleEdges.has(candidate.id)
+        ? "矢印を追加しました。有向サイクルを形成する矢印を青緑色の点線で示しています。DAGとして解析するには、サイクルがなくなるよう矢印を見直してください。"
+        : null,
+    );
     setEdges((eds) => addEdge(candidate, eds));
   };
 
@@ -797,6 +812,7 @@ export default function App() {
               <span className="legend-item"><i className="dot covariate" />共変量</span>
               <span className="legend-item"><i className="dot adjusted" />Adjusted</span>
               <span className="legend-item"><i className="dot unmeasured" />Unobserved / Latent</span>
+              <span className="legend-item"><i className="line-sample cycle-line" />有向サイクル</span>
             </div>
           </div>
         </section>
