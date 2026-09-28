@@ -24,11 +24,18 @@ export function downloadProject(project: ProjectState) {
   });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  const safeName = (project.title || "g-cham-dag-project")
+  const safeTitle = (project.title || "無題")
     .replace(/[^a-zA-Z0-9\u3040-\u30ff\u3400-\u9fff_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
     .slice(0, 80);
+  const now = new Date();
+  const dateStamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("");
   a.href = url;
-  a.download = `${safeName || "g-cham-dag-project"}.json`;
+  a.download = `G-CHAM_DAG_Campus_${dateStamp}_${safeTitle || "無題"}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
