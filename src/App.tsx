@@ -180,6 +180,21 @@ export default function App() {
       ? analysisExposures.length === 1
       : analysisExposures.length >= 2);
 
+  const selectedExposureIds = useMemo(
+    () => new Set(analysisExposures.map((node) => node.id)),
+    [analysisExposures],
+  );
+  const hasExposureToExposureEdge = useMemo(
+    () =>
+      effectMode === "joint" &&
+      edges.some(
+        (edge) =>
+          selectedExposureIds.has(edge.source) &&
+          selectedExposureIds.has(edge.target),
+      ),
+    [effectMode, edges, selectedExposureIds],
+  );
+
   const adjusted = useMemo(
     () => new Set(nodes.filter((n) => n.data.adjusted).map((n) => n.id)),
     [nodes],
@@ -914,6 +929,16 @@ export default function App() {
                   })}
                 </div>
               )}
+              {effectMode === "joint" && (
+                <div className="microcopy">
+                  選ぶ曝露・介入を変えると、調べている因果関係も変わります。
+                </div>
+              )}
+              {hasExposureToExposureEdge && (
+                <div className="adjustment-status warn-text">
+                  選んだ曝露・介入の中に、別の曝露・介入に影響するものがあります。複数の曝露・介入を一緒に解析するときは、それぞれの時間的な順序や関係を確認してください。
+                </div>
+              )}
             </div>
 
             <div className="analysis-field">
@@ -968,7 +993,7 @@ export default function App() {
                   {effectMode === "joint" ? "交絡と非因果経路" : "交絡とバックドアパス"}
                 </div>
                 <div className="metric">
-                  {confoundingExists ? "交絡あり" : "交絡を示す開いたバックドアパスなし"}
+                  {confoundingExists ? "交絡あり" : "現在の解析では、交絡を示す経路は見つかりません"}
                 </div>
                 {adjusted.size > 0 && (
                   <div className={currentAdjustmentValid ? "adjustment-status ok-text" : "adjustment-status warn-text"}>
