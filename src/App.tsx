@@ -740,7 +740,10 @@ export default function App() {
               </button>
               <button
                 className={effectMode === "joint" ? "tab active" : "tab"}
-                onClick={() => setEffectMode("joint")}
+                onClick={() => {
+                  setEffectMode("joint");
+                  setAnalysisExposureIds(exposureNodes.map((node) => node.id));
+                }}
               >
                 複数曝露・介入
               </button>
