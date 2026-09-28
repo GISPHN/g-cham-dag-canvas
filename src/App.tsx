@@ -184,15 +184,28 @@ export default function App() {
     () => new Set(analysisExposures.map((node) => node.id)),
     [analysisExposures],
   );
-  const hasExposureToExposureEdge = useMemo(
-    () =>
-      effectMode === "joint" &&
-      edges.some(
-        (edge) =>
-          selectedExposureIds.has(edge.source) &&
-          selectedExposureIds.has(edge.target),
-      ),
-    [effectMode, edges, selectedExposureIds],
+  const exposureToExposureRelations = useMemo(
+    () => {
+      if (effectMode !== "joint") return [];
+
+      const labelById = new Map(
+        analysisExposures.map((node) => [node.id, node.data.label]),
+      );
+
+      return edges
+        .filter(
+          (edge) =>
+            selectedExposureIds.has(edge.source) &&
+            selectedExposureIds.has(edge.target),
+        )
+        .map((edge) => ({
+          sourceId: edge.source,
+          targetId: edge.target,
+          sourceLabel: labelById.get(edge.source) ?? edge.source,
+          targetLabel: labelById.get(edge.target) ?? edge.target,
+        }));
+    },
+    [effectMode, edges, selectedExposureIds, analysisExposures],
   );
 
   const adjusted = useMemo(
@@ -934,9 +947,24 @@ export default function App() {
                   選ぶ曝露・介入を変えると、調べている因果関係も変わります。
                 </div>
               )}
-              {hasExposureToExposureEdge && (
+              {exposureToExposureRelations.length > 0 && (
                 <div className="adjustment-status warn-text">
-                  選んだ曝露・介入の中に、別の曝露・介入に影響するものがあります。複数の曝露・介入を一緒に解析するときは、それぞれの時間的な順序や関係を確認してください。
+                  <div>
+                    選んだ曝露・介入の中に、別の曝露・介入に影響するものがあります。以下の関係を確認してください。
+                  </div>
+                  <div className="exposure-relation-list">
+                    {exposureToExposureRelations.map((relation) => (
+                      <div
+                        className="exposure-relation"
+                        key={relation.sourceId + "->" + relation.targetId}
+                      >
+                        {relation.sourceLabel} → {relation.targetLabel}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="microcopy">
+                    複数の曝露・介入を一緒に解析するときは、それぞれの時間的な順序や関係を確認してください。
+                  </div>
                 </div>
               )}
             </div>
