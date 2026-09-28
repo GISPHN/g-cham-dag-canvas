@@ -32,7 +32,6 @@ import {
   directedCycleEdgeIds,
   directedPathsForExposures,
   enumerateMinimalAdjustmentSetsForExposures,
-  hasDirectedCycle,
   isValidAdjustmentSetForExposures,
 } from "./lib/graph";
 import { downloadProject, loadProject, projectFileStem, readProjectFile, saveProject } from "./lib/storage";
