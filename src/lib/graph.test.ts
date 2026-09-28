@@ -3,6 +3,7 @@ import type { Edge, Node } from "@xyflow/react";
 import type { CausalNodeData } from "../types";
 import {
   diagnoseBackdoorPathsForExposures,
+  directedCycleEdgeIds,
   enumerateMinimalAdjustmentSetsForExposures,
   forbiddenSetForAdjustment,
   isValidAdjustmentSetForExposures,
@@ -226,5 +227,19 @@ describe("generalized adjustment criterion", () => {
     );
     expect(validity.valid).toBe(true);
   });
+
+  it("identifies every edge that participates in a directed cycle", () => {
+    const edges = [
+      edge("A", "B"),
+      edge("B", "C"),
+      edge("C", "A"),
+      edge("C", "D"),
+    ];
+
+    expect([...directedCycleEdgeIds(edges)].sort()).toEqual(
+      ["A-B", "B-C", "C-A"].sort(),
+    );
+  });
+
 
 });
