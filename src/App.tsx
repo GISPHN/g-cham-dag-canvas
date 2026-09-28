@@ -224,6 +224,12 @@ export default function App() {
       analysisOutcome.id,
       conditioned,
     );
+    const baselineValidity = isValidAdjustmentSetForExposures(
+      edges,
+      exposureIds,
+      analysisOutcome.id,
+      selectedForAnalysis,
+    );
     const enumeration = enumerateMinimalAdjustmentSetsForExposures(
       nodes,
       edges,
@@ -242,6 +248,7 @@ export default function App() {
     return {
       baselineBackdoor,
       backdoor,
+      baselineValidity,
       directed: directedPathsForExposures(edges, exposureIds, analysisOutcome.id),
       minimal,
       adjustmentEnumeration: enumeration,
@@ -563,11 +570,14 @@ export default function App() {
   };
 
   const activeBackdoors = diagnostics?.backdoor.filter((p) => p.active) ?? [];
-  const baselineActiveBackdoors = diagnostics?.baselineBackdoor.filter((p) => p.active) ?? [];
   const adjustedCollider = diagnostics?.roles.colliders.filter((id) => conditioned.has(id)) ?? [];
   const adjustedMediator = diagnostics?.roles.mediators.filter((id) => adjusted.has(id)) ?? [];
   const forbiddenAdjusted = diagnostics?.adjustmentValidity.forbiddenAdjusted ?? [];
-  const confoundingExists = baselineActiveBackdoors.length > 0;
+  const confoundingExists = diagnostics
+    ? !diagnostics.baselineValidity.valid &&
+      diagnostics.baselineValidity.forbiddenAdjusted.length === 0
+    : false;
+  const currentAdjustmentValid = diagnostics?.adjustmentValidity.valid ?? false;
 
   return (
     <div className="app-shell">
@@ -831,16 +841,23 @@ export default function App() {
                 <div className="metric">
                   {confoundingExists ? "交絡あり" : "交絡を示す開いたバックドアパスなし"}
                 </div>
-                {confoundingExists && adjusted.size > 0 && (
-                  <div className={activeBackdoors.length === 0 ? "adjustment-status ok-text" : "adjustment-status warn-text"}>
-                    {activeBackdoors.length === 0
-                      ? "現在の調整で、開いていたバックドアパスはすべて遮断されています。"
-                      : `調整後も ${activeBackdoors.length} 本の非因果経路が開いています。`}
+                {adjusted.size > 0 && (
+                  <div className={currentAdjustmentValid ? "adjustment-status ok-text" : "adjustment-status warn-text"}>
+                    {currentAdjustmentValid
+                      ? "現在の調整集合は、グラフ分離基準上、選択した因果効果に対して十分です。"
+                      : forbiddenAdjusted.length > 0
+                        ? "現在の調整集合には調整禁止（Forbidden）の変数が含まれています。"
+                        : "現在の調整では、グラフ分離基準上、未遮断の非因果経路が残っています。"}
                   </div>
                 )}
                 <div className="microcopy">
-                  元の因果矢印は黒い実線のまま保持しています。赤い破線は現在開いている非因果経路の重ね表示、灰色の点線は条件付けで閉じた経路の重ね表示です。
+                  調整の十分性は generalized adjustment criterion に基づくグラフ分離で判定します。元の因果矢印は黒い実線のまま保持し、赤い破線と灰色の点線は経路理解のための説明用オーバーレイです。
                 </div>
+                {diagnostics.backdoor.length > 0 && (
+                  <div className="microcopy">
+                    以下の経路一覧は説明用です。最終判定は経路列挙件数ではなくグラフ分離結果を使用します。
+                  </div>
+                )}
                 <div className="path-list">
                   {diagnostics.backdoor.slice(0, 8).map((p, i) => (
                     <div key={i} className={p.active ? "path active-path" : "path blocked-path"}>
