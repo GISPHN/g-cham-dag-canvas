@@ -18,13 +18,8 @@ export function loadProject(): ProjectState | null {
   }
 }
 
-export function downloadProject(project: ProjectState) {
-  const blob = new Blob([JSON.stringify(project, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const safeTitle = (project.title || "無題")
+export function projectFileStem(title: string) {
+  const safeTitle = (title || "無題")
     .replace(/[^a-zA-Z0-9\u3040-\u30ff\u3400-\u9fff_-]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 80);
@@ -34,8 +29,17 @@ export function downloadProject(project: ProjectState) {
     String(now.getMonth() + 1).padStart(2, "0"),
     String(now.getDate()).padStart(2, "0"),
   ].join("");
+  return `G-CHAM_DAG_Campus_${dateStamp}_${safeTitle || "無題"}`;
+}
+
+export function downloadProject(project: ProjectState) {
+  const blob = new Blob([JSON.stringify(project, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
   a.href = url;
-  a.download = `G-CHAM_DAG_Campus_${dateStamp}_${safeTitle || "無題"}.json`;
+  a.download = `${projectFileStem(project.title)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
