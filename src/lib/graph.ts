@@ -49,6 +49,41 @@ export function descendants(edges: GraphEdge[], start: string): Set<string> {
   return seen;
 }
 
+export function directedCycleEdgeIds(edges: GraphEdge[]): Set<string> {
+  const cycleEdges = new Set<string>();
+
+  const canReach = (
+    start: string,
+    target: string,
+    skippedEdgeId: string,
+  ): boolean => {
+    const seen = new Set<string>();
+    const stack = [start];
+
+    while (stack.length) {
+      const current = stack.pop()!;
+      if (current === target) return true;
+      if (seen.has(current)) continue;
+      seen.add(current);
+
+      for (const edge of edges) {
+        if (edge.id === skippedEdgeId || edge.source !== current) continue;
+        if (!seen.has(edge.target)) stack.push(edge.target);
+      }
+    }
+
+    return false;
+  };
+
+  for (const edge of edges) {
+    if (canReach(edge.target, edge.source, edge.id)) {
+      cycleEdges.add(edge.id);
+    }
+  }
+
+  return cycleEdges;
+}
+
 export function hasDirectedCycle(nodes: GraphNode[], edges: GraphEdge[]) {
   const visiting = new Set<string>();
   const visited = new Set<string>();
