@@ -509,6 +509,19 @@ select:focus {
   background: #8e97a6;
 }
 
+.line-sample {
+  width: 18px;
+  height: 0;
+  display: inline-block;
+  border-top-width: 3px;
+  border-top-style: solid;
+}
+
+.cycle-line {
+  border-top-color: #0f766e;
+  border-top-style: dotted;
+}
+
 .assumption-note {
   margin-bottom: 12px;
   padding: 9px 10px;
