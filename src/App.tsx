@@ -7,6 +7,8 @@ import {
   MarkerType,
   MiniMap,
   ReactFlow,
+  getNodesBounds,
+  getViewportForBounds,
   useReactFlow,
   useEdgesState,
   useNodesState,
@@ -14,7 +16,8 @@ import {
   type Edge,
   type Node,
 } from "@xyflow/react";
-import { Download, FilePlus2, Plus, RotateCcw, Save, Trash2, Upload } from "lucide-react";
+import { Download, FilePlus2, ImageDown, Plus, RotateCcw, Save, Trash2, Upload } from "lucide-react";
+import { toPng } from "html-to-image";
 import CausalNode from "./components/CausalNode";
 import type {
   CausalNodeData,
@@ -31,7 +34,7 @@ import {
   hasDirectedCycle,
   isValidAdjustmentSetForExposures,
 } from "./lib/graph";
-import { downloadProject, loadProject, readProjectFile, saveProject } from "./lib/storage";
+import { downloadProject, loadProject, projectFileStem, readProjectFile, saveProject } from "./lib/storage";
 
 const frameworkFields: Record<QuestionFramework["mode"], Array<{ key: string; label: string; hint: string }>> = {
   HAPECOM: [
@@ -153,7 +156,7 @@ export default function App() {
   const [graphNotice, setGraphNotice] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition, setViewport } = useReactFlow();
+  const { screenToFlowPosition, setViewport, getNodes } = useReactFlow();
 
   const exposureNodes = useMemo(
     () => nodes.filter((n) => n.data.role === "exposure"),
@@ -334,12 +337,21 @@ export default function App() {
       }
     });
 
-    const baseEdges = edges.map((edge) => ({
-      ...edge,
-      style: { stroke: "#4c586c", strokeWidth: 2 },
-      markerEnd: { type: MarkerType.ArrowClosed, color: "#4c586c" },
-      animated: false,
-    }));
+    const baseEdges = edges.map((edge) => {
+      const selected = Boolean(edge.selected);
+      const stroke = selected ? "#5b3fd3" : "#4c586c";
+      return {
+        ...edge,
+        style: {
+          stroke,
+          strokeWidth: selected ? 4 : 2,
+          filter: selected ? "drop-shadow(0 0 4px rgba(91, 63, 211, 0.45))" : undefined,
+        },
+        markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
+        animated: false,
+        zIndex: selected ? 20 : 0,
+      };
+    });
 
     const overlays: Edge[] = [];
     for (const edge of edges) {
@@ -409,6 +421,66 @@ export default function App() {
 
     setGraphNotice(null);
     setEdges((eds) => addEdge(candidate, eds));
+  };
+
+  const renameNode = (node: Node<CausalNodeData>) => {
+    const next = window.prompt("変数名を編集", node.data.label);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === node.data.label) return;
+    setNodes((ns) =>
+      ns.map((n) =>
+        n.id === node.id ? { ...n, data: { ...n.data, label: trimmed } } : n,
+      ),
+    );
+    setSelectedNodeId(node.id);
+  };
+
+  const exportCanvasPng = async () => {
+    const viewportElement = canvasWrapRef.current?.querySelector(
+      ".react-flow__viewport",
+    ) as HTMLElement | null;
+    const flowNodes = getNodes();
+
+    if (!viewportElement || flowNodes.length === 0) {
+      window.alert("画像として保存するDAGがありません。");
+      return;
+    }
+
+    try {
+      const bounds = getNodesBounds(flowNodes);
+      const imageWidth = Math.min(3200, Math.max(1400, Math.ceil(bounds.width + 280)));
+      const imageHeight = Math.min(2400, Math.max(900, Math.ceil(bounds.height + 280)));
+      const { x, y, zoom } = getViewportForBounds(
+        bounds,
+        imageWidth,
+        imageHeight,
+        0.2,
+        2,
+        0.12,
+      );
+
+      const dataUrl = await toPng(viewportElement, {
+        backgroundColor: "#f8f9fc",
+        width: imageWidth,
+        height: imageHeight,
+        pixelRatio: 2,
+        cacheBust: true,
+        style: {
+          width: `${imageWidth}px`,
+          height: `${imageHeight}px`,
+          transform: `translate(${x}px, ${y}px) scale(${zoom})`,
+        },
+      });
+
+      const link = document.createElement("a");
+      link.download = `${projectFileStem(title)}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (error) {
+      console.error(error);
+      window.alert("キャンバス画像の保存に失敗しました。");
+    }
   };
 
   const addVariable = (label = newVariable, role: VariableRole = "covariate") => {
@@ -597,6 +669,7 @@ export default function App() {
           <button className="secondary new-project-button" onClick={newProject}><FilePlus2 size={16} /> 新規作成</button>
           <button className="secondary" onClick={loadStarter}><RotateCcw size={16} /> 例題</button>
           <button className="secondary" onClick={() => fileRef.current?.click()}><Upload size={16} /> 読込</button>
+          <button className="secondary" onClick={exportCanvasPng}><ImageDown size={16} /> 画像保存</button>
           <button className="primary" onClick={() => downloadProject(project)}><Download size={16} /> 保存</button>
           <input ref={fileRef} hidden type="file" accept="application/json,.json" onChange={(e) => importFile(e.target.files?.[0])} />
         </div>
@@ -707,6 +780,8 @@ export default function App() {
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+              onNodeDoubleClick={(_, node) => renameNode(node)}
+              onEdgeClick={() => setSelectedNodeId(null)}
               onPaneClick={() => setSelectedNodeId(null)}
               fitView
               deleteKeyCode={["Backspace", "Delete"]}
