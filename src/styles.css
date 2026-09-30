@@ -469,12 +469,14 @@ select:focus {
   position: absolute;
   left: 12px;
   bottom: 12px;
+  max-width: calc(100% - 24px);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 8px 10px;
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.96);
   border: 1px solid #dde3ed;
   box-shadow: 0 3px 12px rgba(26, 38, 66, 0.06);
   z-index: 5;
@@ -487,45 +489,88 @@ select:focus {
   color: #526078;
   font-size: 11px;
   font-weight: 650;
+  white-space: nowrap;
 }
 
-.dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
+.legend-divider {
+  align-self: stretch;
+  width: 1px;
+  min-height: 18px;
+  background: #d9dee8;
+}
+
+.node-sample {
+  width: 16px;
+  height: 11px;
   display: inline-block;
+  border: 2px solid;
+  border-radius: 4px;
+  background: #fff;
+  flex: 0 0 auto;
 }
 
-.dot.exposure {
-  background: #4777cf;
+.exposure-node {
+  background: #e9f1ff;
+  border-color: #4777cf;
 }
 
-.dot.outcome {
-  background: #d45e5e;
+.outcome-node {
+  background: #ffeded;
+  border-color: #d45e5e;
 }
 
-.dot.covariate {
-  background: #8e9aaf;
+.covariate-node {
+  background: #f3f5f8;
+  border-color: #7e8ba2;
 }
 
-.dot.adjusted {
-  background: #f0ad32;
+.adjusted-node {
+  background: #f3f5f8;
+  border-color: #7e8ba2;
+  box-shadow: 0 0 0 3px rgba(244, 181, 55, 0.38);
 }
 
-.dot.unmeasured {
-  background: #8e97a6;
+.unobserved-node {
+  background: #f1f2f4;
+  border-color: #747f90;
+  border-style: dashed;
 }
 
 .line-sample {
-  width: 18px;
+  width: 22px;
   height: 0;
   display: inline-block;
   border-top-width: 3px;
   border-top-style: solid;
+  flex: 0 0 auto;
+}
+
+.causal-line {
+  border-top-color: #4c586c;
+  border-top-width: 2px;
+}
+
+.selected-line {
+  border-top-color: #5b3fd3;
+  border-top-width: 4px;
+  box-shadow: 0 0 3px rgba(91, 63, 211, 0.35);
+}
+
+.confounding-line {
+  border-top-color: #c2413b;
+  border-top-width: 4px;
+  border-top-style: dashed;
+}
+
+.adjusted-path-line {
+  border-top-color: #667085;
+  border-top-width: 4px;
+  border-top-style: dashed;
 }
 
 .cycle-line {
   border-top-color: #0f766e;
+  border-top-width: 4px;
   border-top-style: dotted;
 }
 
