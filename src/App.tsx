@@ -866,11 +866,16 @@ export default function App() {
               <MiniMap pannable zoomable />
             </ReactFlow>
             <div className="legend">
-              <span className="legend-item"><i className="dot exposure" />曝露・介入</span>
-              <span className="legend-item"><i className="dot outcome" />アウトカム</span>
-              <span className="legend-item"><i className="dot covariate" />共変量</span>
-              <span className="legend-item"><i className="dot adjusted" />Adjusted</span>
-              <span className="legend-item"><i className="dot unmeasured" />Unobserved / Latent</span>
+              <span className="legend-item"><i className="node-sample exposure-node" />曝露・介入</span>
+              <span className="legend-item"><i className="node-sample outcome-node" />アウトカム</span>
+              <span className="legend-item"><i className="node-sample covariate-node" />共変量</span>
+              <span className="legend-item"><i className="node-sample adjusted-node" />調整する</span>
+              <span className="legend-item"><i className="node-sample unobserved-node" />未観測・潜在</span>
+              <span className="legend-divider" aria-hidden="true" />
+              <span className="legend-item"><i className="line-sample causal-line" />因果矢印</span>
+              <span className="legend-item"><i className="line-sample selected-line" />選択中</span>
+              <span className="legend-item"><i className="line-sample confounding-line" />交絡経路</span>
+              <span className="legend-item"><i className="line-sample adjusted-path-line" />調整で閉じた経路</span>
               <span className="legend-item"><i className="line-sample cycle-line" />有向サイクル</span>
             </div>
           </div>
