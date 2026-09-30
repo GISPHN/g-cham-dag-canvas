@@ -255,12 +255,15 @@ select:focus {
 }
 
 .canvas-toolbar {
-  min-height: 58px;
+  height: 78px;
+  min-height: 78px;
+  flex: 0 0 78px;
   padding: 10px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  overflow: hidden;
   background: rgba(255, 255, 255, 0.96);
   border-bottom: 1px solid #e4e8f0;
 }
@@ -274,9 +277,13 @@ select:focus {
 }
 
 .selected-editor {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
 }
 
 .selected-name {
